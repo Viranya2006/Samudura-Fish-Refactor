@@ -1,0 +1,9 @@
+{
+  "PORT": 5555,
+  "PRINTER_HOST": "",
+  "PRINTER_PORT": 9100,
+  "KICK_DRAWER": true,
+  "DISPLAY_PORT": "COM2",
+  "DISPLAY_BAUD": 2400,
+  "PLU_FILE_PATH": "D:/PLU/plu.txt"
+}
