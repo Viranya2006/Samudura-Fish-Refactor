@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import { downloadReportPdf } from "@/lib/exportReportPdf";
 import { useReportPrintFormat } from "@/contexts/ReportPrintFormatContext";
 import { useShopSettings } from "@/hooks/useShopSettings";
@@ -37,26 +37,25 @@ export function DayEndHistoryReport() {
 
   const load = async () => {
     setLoading(true);
-    const { data: days, error } = await supabase
-      .from("day_end_records")
-      .select("*")
-      .gte("record_date", startDate)
-      .lte("record_date", endDate)
-      .order("record_date", { ascending: false })
-      .order("created_at", { ascending: false });
-
-    if (error) {
+    let list: DayEndRow[] = [];
+    try {
+      const { data: days } = await posApi.dayEnd.list({ from: startDate, to: endDate });
+      list = (days ?? []) as DayEndRow[];
+    } catch {
       setRows([]);
       setLoading(false);
       return;
     }
 
-    const list = (days ?? []) as DayEndRow[];
     const ids = [...new Set(list.map((d) => d.cashier_id))];
     let nameMap: Record<string, string> = {};
-    if (ids.length > 0) {
-      const { data: profs } = await supabase.from("profiles").select("id, full_name").in("id", ids);
-      nameMap = Object.fromEntries((profs ?? []).map((p) => [p.id, p.full_name]));
+    try {
+      const { data: profs } = await posApi.users.list();
+      nameMap = Object.fromEntries(
+        (profs ?? []).filter((p) => ids.includes(p.id)).map((p) => [p.id, p.full_name])
+      );
+    } catch {
+      nameMap = {};
     }
 
     setRows(

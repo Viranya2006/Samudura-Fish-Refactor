@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, DollarSign, Package, ShoppingCart, Scissors, Fish } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 
 interface DashboardStats {
   todaySales: number;
@@ -16,8 +16,6 @@ interface DashboardStats {
   noCutItems: number;
   noCutDiscount: number;
 }
-
-const CHUNK = 400;
 
 export function AdminDashboard() {
   const { t } = useTranslation();
@@ -42,19 +40,15 @@ export function AdminDashboard() {
       const end = `${today}T23:59:59`;
 
       const [salesRes, productsRes] = await Promise.all([
-        supabase
-          .from("sales")
-          .select("id, total, payment_method")
-          .eq("status", "completed")
-          .gte("created_at", start)
-          .lte("created_at", end),
-        supabase
-          .from("products")
-          .select("id", { count: "exact", head: true })
-          .eq("is_active", true),
+        posApi.sales.list({
+          status: "completed",
+          from: start,
+          to: end,
+        }),
+        posApi.products.list(true),
       ]);
 
-      const sales = (salesRes.data ?? []) as { id: string; total: number; payment_method: string }[];
+      const sales = salesRes.data ?? [];
       let todaySales = 0;
       let cashSales = 0;
       let cardSales = 0;
@@ -70,14 +64,8 @@ export function AdminDashboard() {
       let noCutItems = 0;
       let noCutDiscount = 0;
 
-      const saleIds = sales.map((s) => s.id);
-      for (let i = 0; i < saleIds.length; i += CHUNK) {
-        const chunk = saleIds.slice(i, i + CHUNK);
-        const { data: items } = await supabase
-          .from("sale_items")
-          .select("weight_kg, line_discount, is_cut")
-          .in("sale_id", chunk);
-        for (const it of items ?? []) {
+      for (const sale of sales) {
+        for (const it of sale.items ?? []) {
           const w = Number(it.weight_kg);
           const isCut = it.is_cut !== false;
           if (isCut) {
@@ -94,7 +82,7 @@ export function AdminDashboard() {
       setStats({
         todaySales,
         todayCount: sales.length,
-        productCount: productsRes.count ?? 0,
+        productCount: (productsRes.data ?? []).length,
         cashSales,
         cardSales,
         cutKg,

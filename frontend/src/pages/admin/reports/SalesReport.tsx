@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import { downloadSalesReportPdf } from "@/lib/exportReportPdf";
 import { useReportPrintFormat } from "@/contexts/ReportPrintFormatContext";
 import { useShopSettings } from "@/hooks/useShopSettings";
@@ -51,19 +51,24 @@ export function SalesReport() {
     const start = `${startDate}T00:00:00`;
     const end = `${endDate}T23:59:59`;
 
-    const { data, error } = await supabase
-      .from("sales")
-      .select("receipt_number, created_at, total, payment_method, sale_type")
-      .eq("status", "completed")
-      .gte("created_at", start)
-      .lte("created_at", end);
-
-    if (error) {
+    let rows: SaleRow[] = [];
+    try {
+      const { data } = await posApi.sales.list({
+        status: "completed",
+        from: start,
+        to: end,
+      });
+      rows = (data ?? []).map((s) => ({
+        receipt_number: s.receipt_number,
+        created_at: s.created_at,
+        total: s.total,
+        payment_method: s.payment_method ?? "",
+        sale_type: s.sale_type,
+      }));
+    } catch {
       setLoading(false);
       return;
     }
-
-    const rows = (data ?? []) as SaleRow[];
     setSales(rows);
     let totalSales = 0;
     let cashSales = 0;

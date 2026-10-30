@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Loader2, UserCog, Plus } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 import type { Profile, UserRole } from "@/types";
 import { Badge } from "@/components/ui/badge";
@@ -47,11 +47,12 @@ export function UsersPage() {
 
   useEffect(() => {
     async function load() {
-      const { data, error: err } = await supabase
-        .from("profiles")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (!err) setProfiles((data as Profile[]) ?? []);
+      try {
+        const { data } = await posApi.users.list();
+        setProfiles(data ?? []);
+      } catch {
+        setProfiles([]);
+      }
       setLoading(false);
     }
     load();
@@ -70,11 +71,7 @@ export function UsersPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const { error: err } = await supabase
-        .from("profiles")
-        .update({ role: editRole, is_active: editActive, updated_at: new Date().toISOString() })
-        .eq("id", editing.id);
-      if (err) throw err;
+      await posApi.users.update(editing.id, { role: editRole, is_active: editActive });
       setProfiles((prev) =>
         prev.map((p) =>
           p.id === editing.id ? { ...p, role: editRole, is_active: editActive } : p
@@ -114,30 +111,14 @@ export function UsersPage() {
     setCreateSubmitting(true);
     setCreateError(null);
     try {
-      const { data: session } = await supabase.auth.getSession();
-      const token = session?.session?.access_token;
-      if (!token) {
-        setCreateError("Please log in again to create users");
-        return;
-      }
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
-        },
-        body: JSON.stringify({ email, password, full_name: name, role }),
+      const { data: newProfile } = await posApi.users.create({
+        email,
+        password,
+        full_name: name,
+        role,
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error((data as { error?: string }).error || res.statusText || `Request failed (${res.status})`);
-      }
-      if (data?.error) throw new Error(data.error);
-      const newProfile = data?.profile;
       if (newProfile) {
-        setProfiles((prev) => [newProfile as Profile, ...prev]);
+        setProfiles((prev) => [newProfile, ...prev]);
       }
       setCreateOpen(false);
       setCreateEmail("");

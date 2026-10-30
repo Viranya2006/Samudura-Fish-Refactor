@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Save } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 
 export function DayEndPage() {
@@ -35,39 +35,25 @@ export function DayEndPage() {
       const start = `${today}T00:00:00`;
       const end = `${today}T23:59:59`;
 
-      const [salesRes, pettyRes, lastRes, todayClosedRes] = await Promise.all([
-        supabase
-          .from("sales")
-          .select("total, payment_method, cash_received, change_given")
-          .eq("status", "completed")
-          .gte("created_at", start)
-          .lte("created_at", end),
-        supabase
-          .from("petty_cash_transactions")
-          .select("amount")
-          .gte("created_at", start)
-          .lte("created_at", end),
-        supabase
-          .from("day_end_records")
-          .select("closing_cash")
-          .lt("record_date", today)
-          .order("record_date", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        supabase
-          .from("day_end_records")
-          .select("id")
-          .eq("record_date", today)
-          .maybeSingle(),
+      const [salesRes, pettyRes, dayEndRes] = await Promise.all([
+        posApi.sales.list({
+          status: "completed",
+          from: start,
+          to: end,
+        }),
+        posApi.pettyCash.list({ from: start, to: end }),
+        posApi.dayEnd.list(),
       ]);
 
-      setAlreadyClosed(!!todayClosedRes.data);
+      const dayEndRows = dayEndRes.data ?? [];
+      const todayClosed = dayEndRows.some((d) => d.record_date === today);
+      setAlreadyClosed(todayClosed);
 
       let totalSales = 0;
       let cashSales = 0;
       let cardSales = 0;
       let netCashFromSales = 0;
-      const sales = (salesRes.data ?? []) as { total: number; payment_method: string; cash_received: number | null; change_given: number | null }[];
+      const sales = salesRes.data ?? [];
       for (const s of sales) {
         totalSales += s.total;
         if (s.payment_method === "cash") {
@@ -82,7 +68,7 @@ export function DayEndPage() {
 
       let pettyOut = 0;
       let pettyIn = 0;
-      const petty = (pettyRes.data ?? []) as { amount: number }[];
+      const petty = pettyRes.data ?? [];
       for (const p of petty) {
         if (p.amount < 0) pettyOut += Math.abs(p.amount);
         else pettyIn += p.amount;
@@ -98,7 +84,9 @@ export function DayEndPage() {
         pettyIn,
       });
 
-      const last = lastRes.data as { closing_cash: number } | null;
+      const last = dayEndRows
+        .filter((d) => d.record_date < today)
+        .sort((a, b) => b.record_date.localeCompare(a.record_date))[0] ?? null;
       setLastRecord(last);
       if (last?.closing_cash != null) {
         setOpeningCash(String(last.closing_cash));
@@ -122,8 +110,7 @@ export function DayEndPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const { error: err } = await supabase.from("day_end_records").insert({
-        cashier_id: profile.id,
+      await posApi.dayEnd.create({
         record_date: today,
         opening_cash: open,
         closing_cash: close,
@@ -134,7 +121,6 @@ export function DayEndPage() {
         card_sales: summary.cardSales,
         notes: notes.trim() || null,
       });
-      if (err) throw err;
       setLastRecord({ closing_cash: close });
       setNotes("");
     } catch (e) {

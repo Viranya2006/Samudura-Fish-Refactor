@@ -41,8 +41,9 @@ Homestead.json
 Homestead.yaml
 auth.json
 
-# Migration dumps
-docs/exports/
+# Migration dumps (keep folder, ignore JSON dumps)
+docs/exports/*
+!docs/exports/.gitkeep
 *.sql.gz
 *.dump
 

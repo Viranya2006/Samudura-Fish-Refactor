@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import { downloadReportPdf, formatPdfDateOnly } from "@/lib/exportReportPdf";
 import type { StockAdjustmentReason } from "@/types";
 import { getProductName } from "@/types";
@@ -47,20 +47,30 @@ export function WasteFreezerReport() {
 
   const load = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("stock_adjustments")
-      .select("id, product_id, adjustment_date, weight_kg, reason, notes, products (plu_code, name_en, name_si)")
-      .gte("adjustment_date", startDate)
-      .lte("adjustment_date", endDate)
-      .order("adjustment_date", { ascending: false })
-      .order("created_at", { ascending: false });
-
-    if (error) {
+    try {
+      const [{ data: adjustments }, { data: products }] = await Promise.all([
+        posApi.stock.adjustments({ from: startDate, to: endDate }),
+        posApi.products.list(),
+      ]);
+      const productMap = new Map((products ?? []).map((p) => [p.id, p]));
+      const mapped: AdjRow[] = (adjustments ?? []).map((a) => {
+        const p = productMap.get(a.product_id);
+        return {
+          id: a.id,
+          product_id: a.product_id,
+          adjustment_date: a.adjustment_date,
+          weight_kg: a.weight_kg,
+          reason: a.reason,
+          notes: a.notes,
+          products: p
+            ? { plu_code: p.plu_code, name_en: p.name_en, name_si: p.name_si }
+            : null,
+        };
+      });
+      setRows(mapped);
+    } catch {
       setRows([]);
-      setLoading(false);
-      return;
     }
-    setRows((data as unknown as AdjRow[]) ?? []);
     setLoading(false);
   };
 

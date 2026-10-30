@@ -1,31 +1,17 @@
 import { create } from "zustand"
-import type { User } from "@supabase/supabase-js"
-import { supabase } from "@/lib/supabase"
+import { posApi, setToken, getToken, type ApiUser } from "@/lib/api"
 import type { Profile } from "@/types"
 
 export interface AuthState {
-  user: User | null
+  user: ApiUser | null
   profile: Profile | null
   isLoading: boolean
   error: string | null
+  mustResetPassword: boolean
   signIn: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
   loadSession: () => Promise<void>
   clearError: () => void
-}
-
-async function fetchProfile(userId: string): Promise<Profile | null> {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", userId)
-    .single()
-
-  if (error) {
-    console.error("Failed to fetch profile:", error)
-    return null
-  }
-  return data as Profile
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -33,29 +19,27 @@ export const useAuthStore = create<AuthState>((set) => ({
   profile: null,
   isLoading: true,
   error: null,
+  mustResetPassword: false,
 
   signIn: async (email: string, password: string) => {
     set({ isLoading: true, error: null })
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-      if (error) throw error
-      if (!data.user) throw new Error("No user returned")
-
-      const profile = await fetchProfile(data.user.id)
+      const data = await posApi.login(email, password)
+      setToken(data.token)
       set({
         user: data.user,
-        profile,
+        profile: data.profile,
+        mustResetPassword: data.must_reset_password,
         isLoading: false,
         error: null,
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : "Sign in failed"
+      setToken(null)
       set({
         user: null,
         profile: null,
+        mustResetPassword: false,
         isLoading: false,
         error: message,
       })
@@ -65,10 +49,16 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   signOut: async () => {
     set({ isLoading: true })
-    await supabase.auth.signOut()
+    try {
+      if (getToken()) await posApi.logout()
+    } catch {
+      /* ignore */
+    }
+    setToken(null)
     set({
       user: null,
       profile: null,
+      mustResetPassword: false,
       isLoading: false,
       error: null,
     })
@@ -77,29 +67,24 @@ export const useAuthStore = create<AuthState>((set) => ({
   loadSession: async () => {
     set({ isLoading: true, error: null })
     try {
-      const {
-        data: { session },
-        error,
-      } = await supabase.auth.getSession()
-
-      if (error) throw error
-
-      if (!session?.user) {
+      if (!getToken()) {
         set({ user: null, profile: null, isLoading: false })
         return
       }
-
-      const profile = await fetchProfile(session.user.id)
+      const data = await posApi.me()
       set({
-        user: session.user,
-        profile,
+        user: data.user,
+        profile: data.profile,
+        mustResetPassword: data.must_reset_password,
         isLoading: false,
       })
     } catch (err) {
       console.error("Failed to load session:", err)
+      setToken(null)
       set({
         user: null,
         profile: null,
+        mustResetPassword: false,
         isLoading: false,
       })
     }

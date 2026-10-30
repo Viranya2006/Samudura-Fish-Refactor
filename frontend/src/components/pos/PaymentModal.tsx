@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useCartStore } from "@/stores/cartStore";
 import type { PaymentMethod } from "@/types";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { printReceipt } from "@/lib/printReceipt";
@@ -75,45 +75,28 @@ export function PaymentModal({ open, onClose, onSuccess }: PaymentModalProps) {
     setError(null);
     try {
       const receiptNumber = `R${Date.now().toString().slice(-8)}`;
-      const { data: saleData, error: saleError } = await supabase
-        .from("sales")
-        .insert({
-          receipt_number: receiptNumber,
-          cashier_id: profile.id,
-          sale_type: saleType,
-          subtotal,
-          discount_amount: totalDiscount,
-          discount_type: useCartStore.getState().discountType,
-          total,
-          payment_method: paymentMethod,
-          cash_received: paymentMethod === "cash" ? cashNum : null,
-          change_given: paymentMethod === "cash" ? change : null,
-          status: "completed",
-        })
-        .select("id")
-        .single();
-
-      if (saleError) throw saleError;
-      const saleId = saleData?.id;
-      if (!saleId) throw new Error("No sale ID returned");
-
-      const saleItems = items.map((item) => ({
-        sale_id: saleId,
-        product_id: item.productId,
-        weight_kg: item.weightKg,
-        price_per_kg: item.basePricePerKg,
-        line_discount: item.lineDiscount,
-        line_total: item.lineTotal,
-        is_cut: item.isCut,
-        barcode_raw: item.barcodeRaw,
-        is_manual: item.isManual,
-      }));
-
-      const { error: itemsError } = await supabase
-        .from("sale_items")
-        .insert(saleItems);
-
-      if (itemsError) throw itemsError;
+      await posApi.sales.create({
+        receipt_number: receiptNumber,
+        sale_type: saleType,
+        subtotal,
+        discount_amount: totalDiscount,
+        discount_type: useCartStore.getState().discountType,
+        total,
+        payment_method: paymentMethod,
+        cash_received: paymentMethod === "cash" ? cashNum : null,
+        change_given: paymentMethod === "cash" ? change : null,
+        status: "completed",
+        items: items.map((item) => ({
+          product_id: item.productId,
+          weight_kg: item.weightKg,
+          price_per_kg: item.basePricePerKg,
+          line_discount: item.lineDiscount,
+          line_total: item.lineTotal,
+          is_cut: item.isCut,
+          barcode_raw: item.barcodeRaw,
+          is_manual: item.isManual,
+        })),
+      });
 
       // Build receipt data before clearing cart, then print
       const receiptData = {

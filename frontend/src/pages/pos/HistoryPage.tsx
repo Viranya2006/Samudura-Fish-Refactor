@@ -3,16 +3,13 @@ import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Printer, Loader2, Pencil } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
+import { buildProductMap, mapApiSaleToWithItems, type SaleWithItems } from "@/lib/saleHelpers";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { printReceipt } from "@/lib/printReceipt";
 import { formatReceiptDate } from "@/lib/utils";
 import { EditSaleDialog } from "@/components/history/EditSaleDialog";
-import type { Sale, SaleItem, Product } from "@/types";
-
-interface SaleWithItems extends Sale {
-  sale_items: (SaleItem & { products?: Product | null; product?: Product | null })[];
-}
+import type { Product } from "@/types";
 
 export function HistoryPage() {
   const { t } = useTranslation();
@@ -25,22 +22,16 @@ export function HistoryPage() {
 
   useEffect(() => {
     async function load() {
-      const { data, error } = await supabase
-        .from("sales")
-        .select(
-          `
-          *,
-          sale_items (
-            *,
-            products (*)
-          )
-        `
-        )
-        .eq("status", "completed")
-        .order("created_at", { ascending: false })
-        .limit(100);
-
-      if (!error) setSales((data as SaleWithItems[]) ?? []);
+      try {
+        const [{ data: salesData }, { data: productList }] = await Promise.all([
+          posApi.sales.list({ status: "completed", limit: 100 }),
+          posApi.products.list(true),
+        ]);
+        const productMap = buildProductMap(productList ?? []);
+        setSales((salesData ?? []).map((s) => mapApiSaleToWithItems(s, productMap)));
+      } catch {
+        setSales([]);
+      }
       setLoading(false);
     }
     load();
@@ -48,12 +39,13 @@ export function HistoryPage() {
 
   useEffect(() => {
     async function loadProducts() {
-      const { data, error } = await supabase
-        .from("products")
-        .select("*")
-        .eq("is_active", true)
-        .order("plu_code");
-      if (!error) setProducts((data as Product[]) ?? []);
+      try {
+        const { data } = await posApi.products.list(true);
+        const sorted = [...(data ?? [])].sort((a, b) => a.plu_code.localeCompare(b.plu_code));
+        setProducts(sorted);
+      } catch {
+        setProducts([]);
+      }
     }
     loadProducts();
   }, []);

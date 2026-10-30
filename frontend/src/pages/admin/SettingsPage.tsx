@@ -9,10 +9,8 @@ import {
   disconnectCustomerDisplay,
 } from "@/lib/customerDisplay";
 import { useCustomerDisplayStore } from "@/stores/customerDisplayStore";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
-import type { ShopSettings } from "@/types";
-
 export function SettingsPage() {
   const { t } = useTranslation();
   const { profile } = useAuthStore();
@@ -28,21 +26,16 @@ export function SettingsPage() {
     data_retention_days: "90",
     plu_file_path: defaultPluPath,
   });
-  const [settingsId, setSettingsId] = useState<string | null>(null);
   const [displayBusy, setDisplayBusy] = useState(false);
   const webSerialSupported = useCustomerDisplayStore((s) => s.webSerialSupported);
   const serialConnected = useCustomerDisplayStore((s) => s.serialConnected);
 
   useEffect(() => {
     async function load() {
-      const { data, error: err } = await supabase
-        .from("shop_settings")
-        .select("*")
-        .limit(1)
-        .maybeSingle();
-      if (!err && data) {
-        const s = data as ShopSettings;
-        setSettingsId(s.id);
+      try {
+        const { data } = await posApi.shopSettings.get();
+        if (data) {
+        const s = data;
         setForm({
           shop_name: s.shop_name ?? "",
           address: s.address ?? "",
@@ -51,7 +44,7 @@ export function SettingsPage() {
           data_retention_days: String(s.data_retention_days ?? 90),
           plu_file_path: s.plu_file_path?.trim() || defaultPluPath,
         });
-      } else if (!err && !data) {
+      } else {
         setForm({
           shop_name: "Samudura Fish Market",
           address: "",
@@ -60,6 +53,9 @@ export function SettingsPage() {
           data_retention_days: "90",
           plu_file_path: defaultPluPath,
         });
+      }
+      } catch {
+        // keep defaults
       }
       setLoading(false);
     }
@@ -87,19 +83,10 @@ export function SettingsPage() {
       plu_file_path: pluPath,
     };
     try {
-      if (settingsId) {
-        const { error: err } = await supabase
-          .from("shop_settings")
-          .update(payload)
-          .eq("id", settingsId);
-        if (err) throw err;
-      } else {
-        const { error: err } = await supabase.from("shop_settings").insert({
-          ...payload,
-          scale_price_format: "none",
-        });
-        if (err) throw err;
-      }
+      await posApi.shopSettings.save({
+        ...payload,
+        scale_price_format: "none",
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
     } finally {

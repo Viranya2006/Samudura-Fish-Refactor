@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import { downloadReportPdf } from "@/lib/exportReportPdf";
 import type { StockLevelRow } from "@/types";
 import { getProductName } from "@/types";
@@ -22,13 +22,12 @@ export function LowStockReport() {
 
   const load = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from("stock_levels").select("*").order("name_en");
-    if (error) {
+    try {
+      const { data } = await posApi.stock.levels();
+      setRows(data ?? []);
+    } catch {
       setRows([]);
-      setLoading(false);
-      return;
     }
-    setRows((data as StockLevelRow[]) ?? []);
     setLoading(false);
   };
 

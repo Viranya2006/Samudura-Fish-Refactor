@@ -13,6 +13,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
       // Local print-service (PLU file + receipts): same-origin in dev so HTTPS/mixed-content is not an issue
       '/__pos-local-service': {
         target: 'http://127.0.0.1:5555',
@@ -20,5 +24,9 @@ export default defineConfig({
         rewrite: (p) => p.replace(/^\/__pos-local-service/, ''),
       },
     },
+  },
+  build: {
+    outDir: path.resolve(__dirname, '../backend/public'),
+    emptyOutDir: false,
   },
 })

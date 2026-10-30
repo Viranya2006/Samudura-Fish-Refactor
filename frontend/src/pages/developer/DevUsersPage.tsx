@@ -17,7 +17,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Loader2, UserCog } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 import type { Profile, UserRole } from "@/types";
 import { Badge } from "@/components/ui/badge";
@@ -36,11 +36,12 @@ export function DevUsersPage() {
 
   useEffect(() => {
     async function load() {
-      const { data, error: err } = await supabase
-        .from("profiles")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (!err) setProfiles((data as Profile[]) ?? []);
+      try {
+        const { data } = await posApi.users.list();
+        setProfiles(data ?? []);
+      } catch {
+        setProfiles([]);
+      }
       setLoading(false);
     }
     load();
@@ -59,11 +60,7 @@ export function DevUsersPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const { error: err } = await supabase
-        .from("profiles")
-        .update({ role: editRole, is_active: editActive, updated_at: new Date().toISOString() })
-        .eq("id", editing.id);
-      if (err) throw err;
+      await posApi.users.update(editing.id, { role: editRole, is_active: editActive });
       setProfiles((prev) =>
         prev.map((p) =>
           p.id === editing.id ? { ...p, role: editRole, is_active: editActive } : p

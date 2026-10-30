@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import type { ShopSettings } from "@/types";
 
 export function useShopSettings() {
@@ -8,12 +8,12 @@ export function useShopSettings() {
 
   useEffect(() => {
     async function load() {
-      const { data, error } = await supabase
-        .from("shop_settings")
-        .select("*")
-        .limit(1)
-        .maybeSingle();
-      if (!error) setSettings((data as ShopSettings) ?? null);
+      try {
+        const { data } = await posApi.shopSettings.get();
+        setSettings(data ?? null);
+      } catch {
+        setSettings(null);
+      }
       setLoading(false);
     }
     load();

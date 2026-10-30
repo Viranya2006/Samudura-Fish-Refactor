@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Percent, Pause, FileText, CreditCard } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import type { Product } from "@/types";
 import { useCartStore } from "@/stores/cartStore";
 import { SaleTypeToggle } from "@/components/pos/SaleTypeToggle";
@@ -33,11 +33,12 @@ export function SalesPage() {
 
   useEffect(() => {
     async function load() {
-      const { data, error } = await supabase
-        .from("products")
-        .select("*")
-        .eq("is_active", true);
-      if (!error) setProducts((data as Product[]) ?? []);
+      try {
+        const { data } = await posApi.products.list(true);
+        setProducts(data ?? []);
+      } catch {
+        setProducts([]);
+      }
       setLoadingProducts(false);
     }
     load();

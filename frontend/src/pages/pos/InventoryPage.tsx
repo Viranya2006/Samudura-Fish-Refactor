@@ -12,7 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Plus, Pencil, Trash2, RefreshCw, Upload, Download, Loader2, Filter, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import {
   downloadPluTxtFromSupabase,
   syncPluFileAfterInventoryChange,
@@ -23,10 +23,8 @@ import { Toggle } from "@/components/ui/toggle";
 
 /** Generate next 4-digit PLU from existing products */
 async function getNextPluCode(): Promise<string> {
-  const { data } = await supabase
-    .from("products")
-    .select("plu_code");
-  const codes = (data ?? []).map((p: { plu_code: string }) => p.plu_code);
+  const { data } = await posApi.products.list();
+  const codes = (data ?? []).map((p) => p.plu_code);
   let maxNum = 0;
   for (const c of codes) {
     const n = parseInt(c.replace(/\D/g, ""), 10);
@@ -205,12 +203,15 @@ export function InventoryPage() {
 
   async function loadProducts() {
     setLoading(true);
-    const { data, error: err } = await supabase
-      .from("products")
-      .select("*")
-      .eq("is_active", !showInactiveOnly)
-      .order("plu_code");
-    if (!err) setProducts((data as Product[]) ?? []);
+    try {
+      const { data } = await posApi.products.list();
+      const filtered = (data ?? [])
+        .filter((p) => p.is_active === !showInactiveOnly)
+        .sort((a, b) => a.plu_code.localeCompare(b.plu_code));
+      setProducts(filtered);
+    } catch {
+      setProducts([]);
+    }
     setLoading(false);
   }
 
@@ -259,26 +260,24 @@ export function InventoryPage() {
     setError(null);
     try {
       if (pendingAction.type === "soft-delete") {
-        const { error: updateError } = await supabase
-          .from("products")
-          .update({ is_active: false, updated_at: new Date().toISOString() })
-          .in("id", pendingAction.ids);
-        if (updateError) throw updateError;
+        for (const id of pendingAction.ids) {
+          await posApi.products.update(id, { is_active: false });
+        }
         void notifyAutoPluSync();
       } else if (pendingAction.type === "restore") {
-        const { error: updateError } = await supabase
-          .from("products")
-          .update({ is_active: true, updated_at: new Date().toISOString() })
-          .in("id", pendingAction.ids);
-        if (updateError) throw updateError;
+        for (const id of pendingAction.ids) {
+          await posApi.products.update(id, { is_active: true });
+        }
         void notifyAutoPluSync();
       } else {
         const errors: string[] = [];
         for (const id of pendingAction.ids) {
-          const { error: deleteError } = await supabase.from("products").delete().eq("id", id);
-          if (deleteError) {
+          try {
+            await posApi.products.remove(id);
+          } catch (deleteError) {
             const product = products.find((p) => p.id === id);
-            errors.push(`${product?.plu_code ?? id}: ${deleteError.message}`);
+            const msg = deleteError instanceof Error ? deleteError.message : String(deleteError);
+            errors.push(`${product?.plu_code ?? id}: ${msg}`);
           }
         }
         if (errors.length === pendingAction.ids.length) {
@@ -372,7 +371,7 @@ export function InventoryPage() {
     setSaving(true);
     setError(null);
     try {
-      const { error: insertError } = await supabase.from("products").insert({
+      await posApi.products.create({
         plu_code: nextPlu,
         name_en: nameTrim,
         name_si: nameTrim,
@@ -382,7 +381,6 @@ export function InventoryPage() {
         no_cut_discount_per_kg: noCutDiscount,
         is_active: true,
       });
-      if (insertError) throw insertError;
       await loadProducts();
       void notifyAutoPluSync();
       setAddDialogOpen(false);
@@ -422,19 +420,14 @@ export function InventoryPage() {
     setSaving(true);
     setError(null);
     try {
-      const { error: updateError } = await supabase
-        .from("products")
-        .update({
-          name_en: nameTrim,
-          name_si: nameTrim,
-          retail_price_per_kg: retail,
-          wholesale_price_per_kg: wholesale,
-          min_stock_kg: minKg,
-          no_cut_discount_per_kg: noCutDiscount,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", editingProduct.id);
-      if (updateError) throw updateError;
+      await posApi.products.update(editingProduct.id, {
+        name_en: nameTrim,
+        name_si: nameTrim,
+        retail_price_per_kg: retail,
+        wholesale_price_per_kg: wholesale,
+        min_stock_kg: minKg,
+        no_cut_discount_per_kg: noCutDiscount,
+      });
       await loadProducts();
       void notifyAutoPluSync();
       setEditDialogOpen(false);
@@ -505,14 +498,9 @@ export function InventoryPage() {
     let skippedDuplicateInFile = 0;
 
     try {
-      const { data: existingRows, error: fetchErr } = await supabase
-        .from("products")
-        .select("plu_code");
-      if (fetchErr) throw fetchErr;
+      const { data: existingRows } = await posApi.products.list();
       const existingKeys = new Set(
-        (existingRows ?? []).map((r: { plu_code: string }) =>
-          normalizePluKey(r.plu_code)
-        )
+        (existingRows ?? []).map((r) => normalizePluKey(r.plu_code))
       );
 
       const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
@@ -561,18 +549,19 @@ export function InventoryPage() {
           min_stock_kg: 0,
           is_active: true,
         }));
-        const { error: insErr } = await supabase.from("products").insert(chunk);
-        if (insErr) {
+        try {
+          const result = await posApi.products.bulk(chunk);
+          added += result.created;
+        } catch {
           for (const row of chunk) {
-            const { error: oneErr } = await supabase.from("products").insert(row);
-            if (oneErr) {
-              errors.push(`${row.plu_code}: ${oneErr.message}`);
-            } else {
+            try {
+              await posApi.products.create(row);
               added++;
+            } catch (oneErr) {
+              const msg = oneErr instanceof Error ? oneErr.message : String(oneErr);
+              errors.push(`${row.plu_code}: ${msg}`);
             }
           }
-        } else {
-          added += chunk.length;
         }
       }
 

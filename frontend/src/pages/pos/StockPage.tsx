@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 import type {
   Product,
@@ -33,7 +33,7 @@ function todayISODate(): string {
 export function StockPage() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language?.startsWith("si") ? "si" : "en";
-  const { profile, user } = useAuthStore();
+  const { profile } = useAuthStore();
 
   const [tab, setTab] = useState<StockTab>("overview");
   const [levels, setLevels] = useState<StockLevelRow[]>([]);
@@ -70,18 +70,13 @@ export function StockPage() {
   }, []);
 
   const loadProducts = useCallback(async () => {
-    const { data, error: err } = await supabase
-      .from("products")
-      .select("*")
-      .eq("is_active", true)
-      .order("plu_code");
-    if (err) throw err;
-    setProducts((data as Product[]) ?? []);
+    const { data } = await posApi.products.list(true);
+    const sorted = [...(data ?? [])].sort((a, b) => a.plu_code.localeCompare(b.plu_code));
+    setProducts(sorted);
   }, []);
 
   const loadLevels = useCallback(async () => {
-    const { data, error: err } = await supabase.from("stock_levels").select("*").order("name_en");
-    if (err) throw err;
+    const { data } = await posApi.stock.levels();
     const rows = (data as StockLevelRow[]) ?? [];
     setLevels(rows);
     setMinDrafts((prev) => {
@@ -96,23 +91,13 @@ export function StockPage() {
   }, []);
 
   const loadPurchases = useCallback(async () => {
-    const { data, error: err } = await supabase
-      .from("stock_purchases")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(80);
-    if (err) throw err;
-    setPurchases((data as StockPurchase[]) ?? []);
+    const { data } = await posApi.stock.purchases();
+    setPurchases((data ?? []).slice(0, 80));
   }, []);
 
   const loadAdjustments = useCallback(async () => {
-    const { data, error: err } = await supabase
-      .from("stock_adjustments")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(80);
-    if (err) throw err;
-    setAdjustments((data as StockAdjustment[]) ?? []);
+    const { data } = await posApi.stock.adjustments();
+    setAdjustments((data ?? []).slice(0, 80));
   }, []);
 
   const refreshAll = useCallback(async () => {
@@ -176,7 +161,7 @@ export function StockPage() {
     setPurchaseSaving(true);
     try {
       const total = Math.round(w * c * 100) / 100;
-      const { error: insErr } = await supabase.from("stock_purchases").insert({
+      await posApi.stock.createPurchase({
         product_id: purchaseProductId,
         purchase_date: purchaseDate,
         weight_kg: w,
@@ -184,9 +169,7 @@ export function StockPage() {
         total_cost: total,
         supplier: purchaseSupplier.trim() || null,
         notes: purchaseNotes.trim() || null,
-        created_by: user?.id ?? null,
       });
-      if (insErr) throw insErr;
       setPurchaseWeight("");
       setPurchaseCost("");
       setPurchaseSupplier("");
@@ -209,15 +192,13 @@ export function StockPage() {
     setError(null);
     setAdjSaving(true);
     try {
-      const { error: insErr } = await supabase.from("stock_adjustments").insert({
+      await posApi.stock.createAdjustment({
         product_id: adjProductId,
         adjustment_date: adjDate,
         weight_kg: w,
         reason: adjReason,
         notes: adjNotes.trim() || null,
-        created_by: user?.id ?? null,
       });
-      if (insErr) throw insErr;
       setAdjWeight("");
       setAdjNotes("");
       showToast(t("stock.savedAdjustment"));
@@ -239,11 +220,7 @@ export function StockPage() {
     setError(null);
     setSavingMinId(productId);
     try {
-      const { error: upErr } = await supabase
-        .from("products")
-        .update({ min_stock_kg: v, updated_at: new Date().toISOString() })
-        .eq("id", productId);
-      if (upErr) throw upErr;
+      await posApi.products.update(productId, { min_stock_kg: v });
       showToast(t("stock.savedMin"));
       await loadLevels();
     } catch (e) {

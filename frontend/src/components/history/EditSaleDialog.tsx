@@ -17,12 +17,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Loader2, Trash2, Plus } from "lucide-react";
-import { supabase } from "@/lib/supabase";
-import type { Sale, SaleItem, Product } from "@/types";
-
-interface SaleWithItems extends Sale {
-  sale_items: (SaleItem & { products?: Product | null; product?: Product | null })[];
-}
+import { posApi } from "@/lib/api";
+import { mapApiSaleToWithItems, type SaleWithItems } from "@/lib/saleHelpers";
+import type { Product } from "@/types";
 
 interface EditItem {
   sale_item_id?: string;
@@ -150,67 +147,36 @@ export function EditSaleDialog({
       const existingIds = new Set(
         items.map((i) => i.sale_item_id).filter(Boolean) as string[]
       );
-      const { data: currentItems } = await supabase
-        .from("sale_items")
-        .select("id")
-        .eq("sale_id", sale.id);
-      const toDelete = (currentItems ?? []).filter((si) => !existingIds.has(si.id));
-      for (const si of toDelete) {
-        await supabase.from("sale_items").delete().eq("id", si.id);
-      }
+      const delete_item_ids = (sale.sale_items ?? [])
+        .map((si) => si.id)
+        .filter((id) => !existingIds.has(id));
 
+      const payloadItems: Record<string, unknown>[] = [];
       for (const it of items) {
         const w = parseFloat(it.weight_kg);
         const p = parseFloat(it.price_per_kg);
         if (isNaN(w) || isNaN(p)) continue;
         const lineTotal = w * p;
-
-        if (it.sale_item_id) {
-          await supabase
-            .from("sale_items")
-            .update({
-              weight_kg: w,
-              price_per_kg: p,
-              line_total: lineTotal,
-            })
-            .eq("id", it.sale_item_id);
-        } else {
-          await supabase.from("sale_items").insert({
-            sale_id: sale.id,
-            product_id: it.product_id,
-            weight_kg: w,
-            price_per_kg: p,
-            line_total: lineTotal,
-            is_manual: true,
-          });
-        }
+        payloadItems.push({
+          ...(it.sale_item_id ? { id: it.sale_item_id } : {}),
+          product_id: it.product_id,
+          weight_kg: w,
+          price_per_kg: p,
+          line_total: lineTotal,
+          is_manual: it.sale_item_id ? undefined : true,
+        });
       }
 
-      await supabase
-        .from("sales")
-        .update({
-          subtotal,
-          discount_amount: discount,
-          total,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", sale.id);
+      const productMap = new Map(products.map((p) => [p.id, p]));
+      const { data: updated } = await posApi.sales.update(sale.id, {
+        subtotal,
+        discount_amount: discount,
+        total,
+        items: payloadItems,
+        delete_item_ids,
+      });
 
-      const { data: updated } = await supabase
-        .from("sales")
-        .select(
-          `
-          *,
-          sale_items (
-            *,
-            products (*)
-          )
-        `
-        )
-        .eq("id", sale.id)
-        .single();
-
-      const updatedSale = { ...updated, sale_items: updated?.sale_items ?? [] } as SaleWithItems;
+      const updatedSale = mapApiSaleToWithItems(updated, productMap);
       onSave(updatedSale);
       onClose();
       if (andPrint) onPrint(updatedSale);

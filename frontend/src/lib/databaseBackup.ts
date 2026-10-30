@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import type {
   DayEndRecord,
   PettyCashTransaction,
@@ -87,33 +87,6 @@ export type DownloadBackupResult =
   | { ok: false; cancelled: true }
   | { ok: false; error: string };
 
-const PAGE_SIZE = 1000;
-const CHUNK_SIZE = 80;
-const NIL_UUID = "00000000-0000-0000-0000-000000000000";
-
-const REPLACE_DELETE_ORDER: BackupTableName[] = [
-  "sale_items",
-  "sales",
-  "stock_adjustments",
-  "stock_purchases",
-  "petty_cash_transactions",
-  "day_end_records",
-  "products",
-];
-
-const IMPORT_UPSERT_ORDER: BackupTableName[] = [
-  "products",
-  "sales",
-  "sale_items",
-  "stock_purchases",
-  "stock_adjustments",
-  "petty_cash_transactions",
-  "day_end_records",
-  "shop_settings",
-  "profiles",
-  "role_permission_defaults",
-];
-
 function emptyTables(): DatabaseBackupTables {
   return {
     products: [],
@@ -146,58 +119,62 @@ function downloadJsonFallback(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-export async function fetchAllRows<T>(
-  table: BackupTableName,
-  onProgress?: BackupProgressCallback
-): Promise<T[]> {
-  const rows: T[] = [];
-  let from = 0;
+type ApiBackupExport = {
+  exported_at?: string;
+  users?: Profile[];
+  products?: Product[];
+  shop_settings?: ShopSettings[];
+  role_permission_defaults?: RolePermissionDefault[];
+  sales?: Sale[];
+  sale_items?: SaleItem[];
+  petty_cash_transactions?: PettyCashTransaction[];
+  day_end_records?: DayEndRecord[];
+  stock_purchases?: StockPurchase[];
+  stock_adjustments?: StockAdjustment[];
+};
 
-  while (true) {
-    const to = from + PAGE_SIZE - 1;
-    const { data, error } = await supabase.from(table).select("*").range(from, to);
-    if (error) throw new Error(`${table}: ${error.message}`);
+function mapApiExportToBackup(raw: ApiBackupExport): DatabaseBackup {
+  const tables: DatabaseBackupTables = {
+    products: raw.products ?? [],
+    sales: raw.sales ?? [],
+    sale_items: raw.sale_items ?? [],
+    stock_purchases: raw.stock_purchases ?? [],
+    stock_adjustments: raw.stock_adjustments ?? [],
+    petty_cash_transactions: raw.petty_cash_transactions ?? [],
+    day_end_records: raw.day_end_records ?? [],
+    shop_settings: raw.shop_settings ?? [],
+    profiles: raw.users ?? [],
+    role_permission_defaults: raw.role_permission_defaults ?? [],
+  };
 
-    const page = (data ?? []) as T[];
-    rows.push(...page);
-    onProgress?.(`Fetching ${table}…`, table, rows.length, rows.length + (page.length === PAGE_SIZE ? PAGE_SIZE : 0));
+  const tableCounts = BACKUP_TABLES.reduce(
+    (acc, table) => {
+      acc[table] = tables[table].length;
+      return acc;
+    },
+    {} as Record<BackupTableName, number>
+  );
 
-    if (page.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
-  onProgress?.(`Fetched ${table}`, table, rows.length, rows.length);
-  return rows;
+  return {
+    formatVersion: BACKUP_FORMAT_VERSION,
+    app: BACKUP_APP,
+    exportedAt: raw.exported_at ?? new Date().toISOString(),
+    tableCounts,
+    tables,
+  };
 }
 
 export async function exportFullDatabase(
   onProgress?: BackupProgressCallback
 ): Promise<{ ok: true; json: string; backup: DatabaseBackup } | { ok: false; error: string }> {
   try {
-    const tables = emptyTables();
-
+    onProgress?.("Fetching backup from server…");
+    const raw = (await posApi.backup.export()) as ApiBackupExport;
+    onProgress?.("Building backup file…");
+    const backup = mapApiExportToBackup(raw);
     for (const table of BACKUP_TABLES) {
-      onProgress?.(`Fetching ${table}…`, table);
-      const rows = await fetchAllRows<unknown>(table, onProgress);
-      (tables as unknown as Record<string, unknown[]>)[table] = rows;
+      onProgress?.(`Fetched ${table}`, table, backup.tableCounts[table], backup.tableCounts[table]);
     }
-
-    const tableCounts = BACKUP_TABLES.reduce(
-      (acc, table) => {
-        acc[table] = tables[table].length;
-        return acc;
-      },
-      {} as Record<BackupTableName, number>
-    );
-
-    const backup: DatabaseBackup = {
-      formatVersion: BACKUP_FORMAT_VERSION,
-      app: BACKUP_APP,
-      exportedAt: new Date().toISOString(),
-      tableCounts,
-      tables,
-    };
-
     return { ok: true, json: JSON.stringify(backup, null, 2), backup };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -306,84 +283,26 @@ export function parseBackupFile(
   };
 }
 
-async function fetchExistingProfileIds(): Promise<Set<string>> {
-  const profiles = await fetchAllRows<Profile>("profiles");
-  return new Set(profiles.map((p) => p.id));
-}
-
-function collectProfileIds(backup: DatabaseBackup, existingProfileIds: Set<string>): Set<string> {
-  const ids = new Set(existingProfileIds);
-  for (const profile of backup.tables.profiles) {
-    ids.add(profile.id);
-  }
-  return ids;
-}
-
-function collectProductIds(backup: DatabaseBackup): Set<string> {
-  return new Set(backup.tables.products.map((p) => p.id));
-}
-
-function filterRowsWithUserRef<T extends { cashier_id?: string; created_by?: string | null }>(
-  rows: T[],
-  validProfileIds: Set<string>,
-  table: BackupTableName,
-  result: TableImportResult
-): T[] {
-  return rows.filter((row) => {
-    const userId = row.cashier_id ?? row.created_by;
-    if (userId && !validProfileIds.has(userId)) {
-      result.skipped += 1;
-      result.errors.push(`${table}: skipped row — unknown user ${userId}`);
-      return false;
-    }
-    return true;
-  });
-}
-
-function filterSaleItems(
-  rows: SaleItem[],
-  validProductIds: Set<string>,
-  validSaleIds: Set<string>,
-  result: TableImportResult
-): SaleItem[] {
-  return rows.filter((row) => {
-    if (!validSaleIds.has(row.sale_id)) {
-      result.skipped += 1;
-      result.errors.push(`sale_items: skipped row ${row.id} — unknown sale ${row.sale_id}`);
-      return false;
-    }
-    if (!validProductIds.has(row.product_id)) {
-      result.skipped += 1;
-      result.errors.push(`sale_items: skipped row ${row.id} — unknown product ${row.product_id}`);
-      return false;
-    }
-    return true;
-  });
-}
-
-function filterProductRefs<T extends { product_id: string; id: string }>(
-  rows: T[],
-  validProductIds: Set<string>,
-  table: BackupTableName,
-  result: TableImportResult
-): T[] {
-  return rows.filter((row) => {
-    if (!validProductIds.has(row.product_id)) {
-      result.skipped += 1;
-      result.errors.push(`${table}: skipped row ${row.id} — unknown product ${row.product_id}`);
-      return false;
-    }
-    return true;
-  });
-}
-
 export async function validateBackupForImport(
   backup: DatabaseBackup
 ): Promise<{ ok: true; validProfileIds: Set<string>; validProductIds: Set<string> } | { ok: false; errors: string[] }> {
   const errors: string[] = [];
-  const existingProfileIds = await fetchExistingProfileIds();
-  const validProfileIds = collectProfileIds(backup, existingProfileIds);
-  const validProductIds = collectProductIds(backup);
+  let existingProfileIds: Set<string>;
+  try {
+    const { data: profiles } = await posApi.users.list();
+    existingProfileIds = new Set(profiles.map((p) => p.id));
+  } catch (e) {
+    return {
+      ok: false,
+      errors: [e instanceof Error ? e.message : "Could not load users for validation."],
+    };
+  }
+
+  const validProfileIds = new Set(existingProfileIds);
+  for (const profile of backup.tables.profiles) {
+    validProfileIds.add(profile.id);
+  }
+  const validProductIds = new Set(backup.tables.products.map((p) => p.id));
 
   if (backup.tables.products.length === 0 && backup.tables.sales.length > 0) {
     errors.push("Backup has sales but no products.");
@@ -396,225 +315,14 @@ export async function validateBackupForImport(
   return { ok: true, validProfileIds, validProductIds };
 }
 
-async function deleteAllRows(table: BackupTableName): Promise<void> {
-  const { error } = await supabase.from(table).delete().neq("id", NIL_UUID);
-  if (error) throw new Error(`Failed to clear ${table}: ${error.message}`);
-}
-
-async function upsertRows(
-  table: BackupTableName,
-  rows: Record<string, unknown>[],
-  mode: ImportMode,
-  result: TableImportResult
-): Promise<void> {
-  if (rows.length === 0) return;
-
-  const conflictKey = table === "role_permission_defaults" ? "role" : "id";
-
-  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-    const chunk = rows.slice(i, i + CHUNK_SIZE);
-
-    if (mode === "merge" || table === "shop_settings" || table === "profiles" || table === "role_permission_defaults") {
-      const { error } = await supabase.from(table).upsert(chunk, { onConflict: conflictKey });
-      if (error) {
-        for (const row of chunk) {
-          const { error: oneErr } = await supabase.from(table).upsert(row, { onConflict: conflictKey });
-          if (oneErr) {
-            result.errors.push(`${table}: ${oneErr.message}`);
-          } else {
-            result.updated += 1;
-          }
-        }
-      } else {
-        result.updated += chunk.length;
-      }
-    } else {
-      const { error } = await supabase.from(table).insert(chunk);
-      if (error) {
-        for (const row of chunk) {
-          const { error: oneErr } = await supabase.from(table).insert(row);
-          if (oneErr) {
-            result.errors.push(`${table}: ${oneErr.message}`);
-          } else {
-            result.inserted += 1;
-          }
-        }
-      } else {
-        result.inserted += chunk.length;
-      }
-    }
-  }
-}
-
-async function importShopSettings(
-  rows: ShopSettings[],
-  result: TableImportResult
-): Promise<void> {
-  if (rows.length === 0) return;
-
-  const { data: existing, error: fetchErr } = await supabase
-    .from("shop_settings")
-    .select("id")
-    .limit(1)
-    .maybeSingle();
-
-  if (fetchErr) {
-    result.errors.push(`shop_settings: ${fetchErr.message}`);
-    return;
-  }
-
-  const row = rows[0];
-  if (existing?.id) {
-    const { error } = await supabase
-      .from("shop_settings")
-      .update({ ...row, id: existing.id, updated_at: new Date().toISOString() })
-      .eq("id", existing.id);
-    if (error) result.errors.push(`shop_settings: ${error.message}`);
-    else result.updated += 1;
-  } else {
-    const { error } = await supabase.from("shop_settings").insert(row);
-    if (error) result.errors.push(`shop_settings: ${error.message}`);
-    else result.inserted += 1;
-  }
-}
-
-async function importProfiles(
-  rows: Profile[],
-  existingProfileIds: Set<string>,
-  result: TableImportResult
-): Promise<void> {
-  const eligible = rows.filter((row) => {
-    if (!existingProfileIds.has(row.id)) {
-      result.skipped += 1;
-      result.errors.push(`profiles: skipped ${row.id} — auth user does not exist`);
-      return false;
-    }
-    return true;
-  });
-
-  await upsertRows("profiles", eligible as unknown as Record<string, unknown>[], "merge", result);
-}
-
-async function importTable(
-  table: BackupTableName,
-  backup: DatabaseBackup,
-  mode: ImportMode,
-  validProfileIds: Set<string>,
-  validProductIds: Set<string>,
-  existingProfileIds: Set<string>,
-  onProgress?: BackupProgressCallback
-): Promise<TableImportResult> {
-  const result: TableImportResult = {
-    table,
-    inserted: 0,
-    updated: 0,
-    skipped: 0,
-    errors: [],
-  };
-
-  onProgress?.(`Importing ${table}…`, table);
-
-  let rows = backup.tables[table] as unknown as Record<string, unknown>[];
-
-  if (table === "sales" || table === "petty_cash_transactions" || table === "day_end_records") {
-    rows = filterRowsWithUserRef(
-      rows as Array<{ cashier_id?: string; created_by?: string | null }>,
-      validProfileIds,
-      table,
-      result
-    ) as Record<string, unknown>[];
-  }
-
-  if (table === "stock_purchases" || table === "stock_adjustments") {
-    rows = filterProductRefs(
-      rows as Array<{ product_id: string; id: string }>,
-      validProductIds,
-      table,
-      result
-    ) as Record<string, unknown>[];
-    rows = filterRowsWithUserRef(
-      rows as Array<{ cashier_id?: string; created_by?: string | null }>,
-      validProfileIds,
-      table,
-      result
-    ) as Record<string, unknown>[];
-  }
-
-  if (table === "sale_items") {
-    const importableSaleIds = new Set(
-      backup.tables.sales
-        .filter((sale) => validProfileIds.has(sale.cashier_id))
-        .map((sale) => sale.id)
-    );
-    rows = filterSaleItems(
-      rows as unknown as SaleItem[],
-      validProductIds,
-      importableSaleIds,
-      result
-    ) as unknown as Record<string, unknown>[];
-  }
-
-  if (table === "shop_settings") {
-    await importShopSettings(backup.tables.shop_settings, result);
-    return result;
-  }
-
-  if (table === "profiles") {
-    await importProfiles(backup.tables.profiles, existingProfileIds, result);
-    return result;
-  }
-
-  await upsertRows(table, rows, mode, result);
-  return result;
-}
-
 export async function importDatabase(
-  backup: DatabaseBackup,
-  mode: ImportMode,
-  onProgress?: BackupProgressCallback
+  _backup: DatabaseBackup,
+  _mode: ImportMode,
+  _onProgress?: BackupProgressCallback
 ): Promise<{ ok: true; result: ImportResult } | { ok: false; error: string }> {
-  try {
-    const validation = await validateBackupForImport(backup);
-    if (!validation.ok) {
-      return { ok: false, error: validation.errors.join(" ") };
-    }
-
-    const { validProfileIds, validProductIds } = validation;
-    const existingProfileIds = await fetchExistingProfileIds();
-    const tableResults: TableImportResult[] = [];
-
-    if (mode === "replace") {
-      onProgress?.("Clearing existing business data…");
-      for (const table of REPLACE_DELETE_ORDER) {
-        onProgress?.(`Clearing ${table}…`, table);
-        await deleteAllRows(table);
-      }
-    }
-
-    for (const table of IMPORT_UPSERT_ORDER) {
-      const tableResult = await importTable(
-        table,
-        backup,
-        mode,
-        validProfileIds,
-        validProductIds,
-        existingProfileIds,
-        onProgress
-      );
-      tableResults.push(tableResult);
-    }
-
-    const result: ImportResult = {
-      mode,
-      tables: tableResults,
-      totalInserted: tableResults.reduce((sum, t) => sum + t.inserted, 0),
-      totalUpdated: tableResults.reduce((sum, t) => sum + t.updated, 0),
-      totalSkipped: tableResults.reduce((sum, t) => sum + t.skipped, 0),
-      allErrors: tableResults.flatMap((t) => t.errors),
-    };
-
-    return { ok: true, result };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
+  return {
+    ok: false,
+    error:
+      "Restore from JSON is not available in the web app. Import this backup on the server with: php artisan pos:import-backup path/to/file.json",
+  };
 }

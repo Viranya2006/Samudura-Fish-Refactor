@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import { downloadReportPdf } from "@/lib/exportReportPdf";
 import type { StockLevelRow } from "@/types";
 import { getProductName } from "@/types";
@@ -27,15 +27,20 @@ export function StockValuationReport() {
 
   const load = async () => {
     setLoading(true);
+    try {
     const [levRes, purRes, prodRes] = await Promise.all([
-      supabase.from("stock_levels").select("*").order("name_en"),
-      supabase.from("stock_purchases").select("product_id, weight_kg, total_cost"),
-      supabase.from("products").select("*").eq("is_active", true),
+      posApi.stock.levels(),
+      posApi.stock.purchases(),
+      posApi.products.list(true),
     ]);
 
-    setLevels((levRes.data as StockLevelRow[]) ?? []);
+    setLevels(levRes.data ?? []);
 
-    const purchases = (purRes.data ?? []) as PurchaseRow[];
+    const purchases = (purRes.data ?? []).map((p) => ({
+      product_id: p.product_id,
+      weight_kg: p.weight_kg,
+      total_cost: p.total_cost,
+    })) as PurchaseRow[];
     const byProd: Record<string, { w: number; c: number }> = {};
     for (const p of purchases) {
       const w = Number(p.weight_kg);
@@ -52,8 +57,13 @@ export function StockValuationReport() {
     setAvgCostByProduct(avg);
 
     const pmap: Record<string, Product> = {};
-    for (const p of (prodRes.data as Product[]) ?? []) pmap[p.id] = p;
+    for (const p of prodRes.data ?? []) pmap[p.id] = p;
     setProducts(pmap);
+    } catch {
+      setLevels([]);
+      setAvgCostByProduct({});
+      setProducts({});
+    }
 
     setLoading(false);
   };

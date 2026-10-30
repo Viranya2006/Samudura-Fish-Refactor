@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import { generatePluFileCsvContent } from "@/lib/scalePluFile";
 import type { Product } from "@/types";
 
@@ -35,32 +35,27 @@ function downloadPluTxtFallback(blob: Blob): void {
 export async function buildPluTxtFromSupabase(): Promise<
   { ok: true; content: string } | { ok: false; error: string }
 > {
-  const { data: products, error: productsErr } = await supabase
-    .from("products")
-    .select("*")
-    .eq("is_active", true)
-    .order("plu_code");
-
-  if (productsErr) {
-    return { ok: false, error: productsErr.message };
+  try {
+    const { data: products } = await posApi.products.list(true);
+    const sorted = [...products].sort((a, b) => a.plu_code.localeCompare(b.plu_code));
+    const content = generatePluFileCsvContent(sorted as Product[]);
+    return { ok: true, content };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
-
-  const content = generatePluFileCsvContent((products as Product[]) ?? []);
-  return { ok: true, content };
 }
 
 /** Read scale PLU path from shop_settings (Admin → Settings). */
 export async function getPluFilePathFromSettings(): Promise<string> {
-  const { data, error } = await supabase
-    .from("shop_settings")
-    .select("plu_file_path")
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !data?.plu_file_path?.trim()) {
+  try {
+    const { data } = await posApi.shopSettings.get();
+    if (!data?.plu_file_path?.trim()) {
+      return DEFAULT_PLU_FILE_PATH;
+    }
+    return data.plu_file_path.trim();
+  } catch {
     return DEFAULT_PLU_FILE_PATH;
   }
-  return data.plu_file_path.trim();
 }
 
 /** Write plu.txt to local print-service (shop PC only). */

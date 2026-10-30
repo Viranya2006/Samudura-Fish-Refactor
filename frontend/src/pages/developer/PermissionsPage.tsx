@@ -10,7 +10,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Loader2, Shield } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import type { Profile } from "@/types";
 import { PERMISSIONS } from "@/lib/constants";
 
@@ -35,23 +35,29 @@ export function PermissionsPage() {
 
   useEffect(() => {
     async function load() {
-      const [profRes, defaultsRes] = await Promise.all([
-        supabase.from("profiles").select("*").order("full_name"),
-        supabase.from("role_permission_defaults").select("role, permissions"),
-      ]);
-      if (!profRes.error) setProfiles((profRes.data as Profile[]) ?? []);
-      if (!defaultsRes.error && defaultsRes.data) {
+      try {
+        const [profRes, defaultsRes] = await Promise.all([
+          posApi.users.list(),
+          posApi.rolePermissions.list(),
+        ]);
+        const sorted = [...(profRes.data ?? [])].sort((a, b) =>
+          a.full_name.localeCompare(b.full_name)
+        );
+        setProfiles(sorted);
         const map: Record<RoleKey, Record<string, boolean>> = {
           admin: {},
           cashier: {},
           developer: {},
         };
-        for (const row of defaultsRes.data as { role: RoleKey; permissions: Record<string, boolean> }[]) {
-          if (map[row.role] !== undefined) {
-            map[row.role] = row.permissions ?? {};
+        for (const row of defaultsRes.data ?? []) {
+          const role = row.role as RoleKey;
+          if (map[role] !== undefined) {
+            map[role] = row.permissions ?? {};
           }
         }
         setRoleDefaults(map);
+      } catch {
+        setProfiles([]);
       }
       setLoading(false);
     }
@@ -87,11 +93,7 @@ export function PermissionsPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const { error: err } = await supabase
-        .from("profiles")
-        .update({ permissions: editPerms, updated_at: new Date().toISOString() })
-        .eq("id", editing.id);
-      if (err) throw err;
+      await posApi.users.update(editing.id, { permissions: editPerms });
       setProfiles((prev) =>
         prev.map((p) =>
           p.id === editing.id ? { ...p, permissions: editPerms } : p

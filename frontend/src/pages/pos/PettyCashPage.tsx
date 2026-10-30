@@ -11,7 +11,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Plus, Minus, Loader2 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 import type { PettyCashTransaction } from "@/types";
 
@@ -29,13 +29,15 @@ export function PettyCashPage() {
 
   const loadTransactions = async () => {
     const today = new Date().toISOString().slice(0, 10);
-    const { data, error: err } = await supabase
-      .from("petty_cash_transactions")
-      .select("*")
-      .gte("created_at", `${today}T00:00:00`)
-      .lte("created_at", `${today}T23:59:59`)
-      .order("created_at", { ascending: false });
-    if (!err) setTransactions((data as PettyCashTransaction[]) ?? []);
+    try {
+      const { data } = await posApi.pettyCash.list({
+        from: `${today}T00:00:00`,
+        to: `${today}T23:59:59`,
+      });
+      setTransactions(data ?? []);
+    } catch {
+      setTransactions([]);
+    }
   };
 
   useEffect(() => {
@@ -70,14 +72,10 @@ export function PettyCashPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const { error: err } = await supabase
-        .from("petty_cash_transactions")
-        .insert({
-          cashier_id: profile.id,
-          amount: value,
-          reason: reason.trim() || null,
-        });
-      if (err) throw err;
+      await posApi.pettyCash.create({
+        amount: value,
+        reason: reason.trim() || null,
+      });
       await loadTransactions();
       setDialogOpen(false);
     } catch (e) {

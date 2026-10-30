@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import { downloadReportPdf } from "@/lib/exportReportPdf";
 import { getProductName } from "@/types";
 import type { Product } from "@/types";
@@ -35,8 +35,6 @@ type AggRow = {
   noCutDiscount: number;
 };
 
-const CHUNK = 400;
-
 export function SalesByProductReport() {
   const { t, i18n } = useTranslation();
   const { isThermal } = useReportPrintFormat();
@@ -52,34 +50,37 @@ export function SalesByProductReport() {
     const start = `${startDate}T00:00:00`;
     const end = `${endDate}T23:59:59`;
 
-    const { data: salesRows, error: salesErr } = await supabase
-      .from("sales")
-      .select("id")
-      .eq("status", "completed")
-      .gte("created_at", start)
-      .lte("created_at", end);
-
-    if (salesErr || !salesRows?.length) {
-      setAggregated([]);
-      setLoading(false);
-      return;
-    }
-
-    const saleIds = salesRows.map((s) => s.id);
-    const allItems: ItemRow[] = [];
-
-    for (let i = 0; i < saleIds.length; i += CHUNK) {
-      const chunk = saleIds.slice(i, i + CHUNK);
-      const { data: items, error: itemsErr } = await supabase
-        .from("sale_items")
-        .select("weight_kg, line_total, line_discount, is_cut, product_id, products (plu_code, name_en, name_si)")
-        .in("sale_id", chunk);
-      if (itemsErr) {
+    let allItems: ItemRow[] = [];
+    try {
+      const [{ data: salesRows }, { data: products }] = await Promise.all([
+        posApi.sales.list({ status: "completed", from: start, to: end }),
+        posApi.products.list(),
+      ]);
+      if (!salesRows?.length) {
         setAggregated([]);
         setLoading(false);
         return;
       }
-      allItems.push(...((items as unknown as ItemRow[]) ?? []));
+      const productMap = new Map((products ?? []).map((p) => [p.id, p]));
+      for (const sale of salesRows) {
+        for (const item of sale.items ?? []) {
+          const p = productMap.get(item.product_id);
+          allItems.push({
+            weight_kg: item.weight_kg,
+            line_total: item.line_total,
+            line_discount: item.line_discount ?? 0,
+            is_cut: item.is_cut !== false,
+            product_id: item.product_id,
+            products: p
+              ? { plu_code: p.plu_code, name_en: p.name_en, name_si: p.name_si }
+              : null,
+          });
+        }
+      }
+    } catch {
+      setAggregated([]);
+      setLoading(false);
+      return;
     }
 
     const map = new Map<

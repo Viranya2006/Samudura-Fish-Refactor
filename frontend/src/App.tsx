@@ -1,7 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect } from "react";
-import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/authStore";
 import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -9,7 +7,6 @@ import { Login } from "@/pages/Login";
 import { ROUTES, ROLE_DEFAULT_ROUTE } from "@/lib/constants";
 import { tryReconnectCustomerDisplay } from "@/lib/customerDisplay";
 
-// Placeholder pages
 import { SalesPage } from "@/pages/pos/SalesPage";
 import { InventoryPage } from "@/pages/pos/InventoryPage";
 import { HistoryPage } from "@/pages/pos/HistoryPage";
@@ -29,23 +26,7 @@ function AppRoutes() {
   const { loadSession, isLoading, profile } = useAuthStore();
 
   useEffect(() => {
-    loadSession();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, session: Session | null) => {
-      if (event === "SIGNED_OUT" || !session) {
-        useAuthStore.setState({ user: null, profile: null, isLoading: false });
-      } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
-        if (session.user) {
-          useAuthStore.setState({ user: session.user, isLoading: false });
-        }
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
+    void loadSession();
   }, [loadSession]);
 
   useEffect(() => {

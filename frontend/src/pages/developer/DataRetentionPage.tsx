@@ -23,7 +23,7 @@ import {
   CheckCircle2,
   HardDrive,
 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { posApi } from "@/lib/api";
 import {
   BACKUP_TABLES,
   type DatabaseBackup,
@@ -59,8 +59,6 @@ export function DataRetentionPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState("90");
-  const [settingsId, setSettingsId] = useState<string | null>(null);
-
   // Table statistics state
   const [statsLoading, setStatsLoading] = useState(false);
   const [tableStats, setTableStats] = useState<TableStat[]>([]);
@@ -88,26 +86,22 @@ export function DataRetentionPage() {
   const loadStats = async () => {
     setStatsLoading(true);
     try {
-      const results = await Promise.all(
-        TABLE_DEFINITIONS.map(async (def) => {
-          try {
-            const { count, error: err } = await supabase
-              .from(def.name)
-              .select("*", { count: "exact", head: true });
-            return {
-              name: def.name,
-              label: def.label,
-              count: !err && count != null ? count : 0,
-              color: def.color,
-            };
-          } catch {
-            return { name: def.name, label: def.label, count: 0, color: def.color };
-          }
-        })
+      const raw = (await posApi.backup.export()) as Record<string, unknown[] | undefined>;
+      const countFor = (name: string) => {
+        if (name === "profiles") return raw.users?.length ?? 0;
+        const key = name as keyof typeof raw;
+        return Array.isArray(raw[key]) ? raw[key]!.length : 0;
+      };
+      setTableStats(
+        TABLE_DEFINITIONS.map((def) => ({
+          name: def.name,
+          label: def.label,
+          count: countFor(def.name),
+          color: def.color,
+        }))
       );
-      setTableStats(results);
     } catch {
-      // ignore
+      setTableStats(TABLE_DEFINITIONS.map((def) => ({ ...def, count: 0 })));
     } finally {
       setStatsLoading(false);
     }
@@ -115,15 +109,13 @@ export function DataRetentionPage() {
 
   useEffect(() => {
     async function load() {
-      const { data, error: err } = await supabase
-        .from("shop_settings")
-        .select("id, data_retention_days")
-        .limit(1)
-        .maybeSingle();
-      if (!err && data) {
-        const d = data as { id: string; data_retention_days: number };
-        setSettingsId(d.id);
-        setDays(String(d.data_retention_days ?? 90));
+      try {
+        const { data } = await posApi.shopSettings.get();
+        if (data) {
+          setDays(String(data.data_retention_days ?? 90));
+        }
+      } catch {
+        // keep default days
       }
       await loadStats();
       setLoading(false);
@@ -154,22 +146,11 @@ export function DataRetentionPage() {
     setSaving(true);
     setError(null);
     try {
-      if (settingsId) {
-        const { error: err } = await supabase
-          .from("shop_settings")
-          .update({ data_retention_days: n, updated_at: new Date().toISOString() })
-          .eq("id", settingsId);
-        if (err) throw err;
-      } else {
-        const { error: err } = await supabase
-          .from("shop_settings")
-          .insert({
-            shop_name: "Samudura Fish Market",
-            shop_name_si: "සමුදුර මත්ස්‍ය වෙළඳපොළ",
-            data_retention_days: n,
-          });
-        if (err) throw err;
-      }
+      await posApi.shopSettings.save({
+        data_retention_days: n,
+        shop_name: "Samudura Fish Market",
+        shop_name_si: "සමුදුර මත්ස්‍ය වෙළඳපොළ",
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
@@ -183,28 +164,10 @@ export function DataRetentionPage() {
     setPurgeSuccess(null);
     try {
       const cutoffIso = cutoffDate.toISOString();
-      const cutoffDateOnly = cutoffFormatted;
 
-      // 1. Delete petty cash transactions older than cutoff
-      const { error: pettyErr } = await supabase
-        .from("petty_cash_transactions")
-        .delete()
-        .lt("created_at", cutoffIso);
-      if (pettyErr) throw pettyErr;
-
-      // 2. Delete day end records older than cutoff
-      const { error: dayEndErr } = await supabase
-        .from("day_end_records")
-        .delete()
-        .lt("record_date", cutoffDateOnly);
-      if (dayEndErr) throw dayEndErr;
-
-      // 3. Delete sales (sale_items cascade automatically)
-      const { error: salesErr } = await supabase
-        .from("sales")
-        .delete()
-        .lt("created_at", cutoffIso);
-      if (salesErr) throw salesErr;
+      await posApi.pettyCash.purge(cutoffIso);
+      await posApi.dayEnd.purge(cutoffIso);
+      await posApi.sales.purge(cutoffIso);
 
       setPurgeDialogOpen(false);
       setPurgeSuccess(t("dev.purgeSuccess"));
