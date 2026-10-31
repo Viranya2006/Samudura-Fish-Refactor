@@ -23,7 +23,8 @@ Move the **live** fish-market POS off paid Supabase (~$25/mo) onto **Provider.lk
 | Local MariaDB wired + sample/full import | Done on this machine |
 | Staging domain | **Chosen** — `samudura.duckdns.org` (DuckDNS → `160.30.208.11`) |
 | Deploy style | **Grocery-style** — git clone/pull on server + Fine-grained PAT (Actions SSH deploy unused) |
-| DirectAdmin staging live | **Almost** — clone + migrate OK; next: seed user, SSL, cron, smoke test |
+| DirectAdmin staging live | **Live** — `https://samudura.duckdns.org` (Let's Encrypt); PWA desktop install added |
+| PWA (desktop install) | **Done** — vite-plugin-pwa + 192/512 icons + service worker |
 | Live cutover | **Not done** — shop still on Supabase |
 | Live Supabase mutations | **None** — intentionally untouched |
 

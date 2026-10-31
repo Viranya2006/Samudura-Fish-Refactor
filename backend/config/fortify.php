@@ -131,7 +131,8 @@ return [
     |
     */
 
-    'views' => true,
+    // SPA uses React + POST /api/login — Fortify Blade /login would 500
+    'views' => false,
 
     /*
     |--------------------------------------------------------------------------
