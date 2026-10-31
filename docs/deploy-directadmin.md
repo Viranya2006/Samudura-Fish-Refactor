@@ -1,64 +1,63 @@
-# Deploy on Provider.lk appPro (DirectAdmin)
+# Deploy on Provider.lk appPro (DirectAdmin) — grocery style
 
-Use the **second website** slot on the same appPro account as the grocery POS.
+Fish host: **`samudura.duckdns.org`**  
+Same appPro as grocery `samudura-supermarket.xyz.lk`.
 
-## 1. Create site + database
+**Deploy style (locked):** same as grocery — **git clone / git pull on the server** with a GitHub Fine-grained PAT.  
+No GitHub Actions SSH deploy required. (`.github/workflows/deploy.yml` is optional / unused.)
 
-1. DirectAdmin → **Domain Setup** → add fish domain/subdomain.
-2. **MySQL Management** → create DB + user (note credentials).
-3. **PHP** → select **8.4**.
-4. Enable **SSH** for the account.
+**Do not** use Softaculous “Laravel”.
 
-## 2. Upload application
+Never auto-run `pos:import-backup --fresh` on deploy.
 
-Recommended layout on server:
+---
 
-```text
-~/domains/<fish-domain>/
-  app/          # full Laravel backend (this repo's backend/)
-  public_html/  # symlink OR document root pointed at app/public
-```
+## One-time setup
 
-Via SSH:
+### 1. DNS
+
+- DuckDNS `samudura` → Provider.lk IP **`160.30.208.11`**
+- DirectAdmin → add domain `samudura.duckdns.org` (not default)
+
+### 2. MySQL
+
+Create DB + user in DirectAdmin MySQL Management. Note full names (DA often prefixes with `samudura_`).
+
+### 3. GitHub PAT
+
+1. Fine-grained PAT with **Contents: Read** on `Viranya2006/Samudura-Fish-Refactor`.
+2. Do **not** paste the token into chat.
+3. Use it only in DirectAdmin Terminal when Git asks for a password (username = your GitHub username, password = the PAT).
+
+### 4. Clone on server (DirectAdmin Terminal)
 
 ```bash
-cd ~/domains/<fish-domain>
+mkdir -p ~/domains/samudura.duckdns.org
+cd ~/domains/samudura.duckdns.org
+
+# If public_html is empty DA folder, remove it so we can symlink
+rm -rf public_html
+
 git clone https://github.com/Viranya2006/Samudura-Fish-Refactor.git repo
-cd repo/backend
+# when prompted: GitHub username + PAT as password
+
+ln -s repo/backend/public public_html
+```
+
+### 5. Laravel `.env`
+
+```bash
+cd ~/domains/samudura.duckdns.org/repo/backend
 cp .env.example .env
-# edit .env: APP_URL, DB_*, APP_KEY
-composer install --no-dev --optimize-autoloader
-php artisan key:generate
-php artisan migrate --force
-php artisan db:seed --force   # only for empty staging
+nano .env
 ```
 
-Point domain document root to `repo/backend/public` (DirectAdmin Domain Setup → document root), **or** symlink:
-
-```bash
-# example — adjust paths to your DA layout
-rm -rf ~/domains/<fish-domain>/public_html
-ln -s ~/domains/<fish-domain>/repo/backend/public ~/domains/<fish-domain>/public_html
-```
-
-## 3. Build frontend into public/
-
-On CI or locally:
-
-```bash
-cd frontend
-npm ci
-npm run build   # writes to backend/public (Vite outDir)
-```
-
-Commit built assets **or** build in GitHub Actions and rsync `backend/public/assets` + `index.html`.
-
-## 4. Laravel `.env` (production)
+Set:
 
 ```env
 APP_ENV=production
 APP_DEBUG=false
-APP_URL=https://your-fish-domain.lk
+APP_URL=https://samudura.duckdns.org
 
 DB_CONNECTION=mysql
 DB_HOST=127.0.0.1
@@ -73,30 +72,91 @@ QUEUE_CONNECTION=sync
 ```
 
 ```bash
+composer install --no-dev --optimize-autoloader
+php artisan key:generate
+php artisan migrate --force
 php artisan config:cache
 php artisan route:cache
 chmod -R ug+rwx storage bootstrap/cache
 ```
 
-## 5. SSL
+If the site returns **500 Server Error**, clear caches and read the log:
 
-DirectAdmin → **SSL Certificates** → AutoSSL for the domain.
-
-## 6. Cron (scheduler + nightly DB backup)
-
-```cron
-* * * * * cd /home/<user>/domains/<fish-domain>/repo/backend && php artisan schedule:run >> /dev/null 2>&1
+```bash
+cd ~/domains/samudura.duckdns.org/repo/backend
+php artisan route:clear
+php artisan config:clear
+php artisan view:clear
+tail -n 80 storage/logs/laravel.log
 ```
 
-Scheduler registers nightly `pos:backup-db` (see `routes/console.php`).
+### 6. Frontend build
 
-## 7. Smoke test
+Vite writes into `backend/public`. Prefer building on your PC, commit, then `git pull` on the server:
 
-1. Open `https://your-fish-domain.lk/login`
-2. Login with seeded/migrated user
-3. Create a test sale + print via counter `print-service`
-4. Check admin reports
+```bash
+# on your Windows PC, in the repo
+cd frontend
+npm ci
+npm run build
+# commit backend/public/index.html + assets if changed, push main
+```
 
-## Credentials checklist
+On server after pull:
 
-Fill [staging-credentials.md](./staging-credentials.md). This environment cannot access your DirectAdmin account; you apply these steps on the live panel.
+```bash
+cd ~/domains/samudura.duckdns.org/repo
+git pull
+cd backend
+composer install --no-dev --optimize-autoloader
+php artisan migrate --force
+php artisan config:cache
+php artisan route:cache
+```
+
+If the server has Node (Setup Node.js App), you may `npm ci && npm run build` inside `repo/frontend` instead.
+
+### 7. SSL + cron
+
+- DirectAdmin → SSL → AutoSSL for `samudura.duckdns.org`
+- Cron:
+
+```cron
+* * * * * cd /home/samudura/domains/samudura.duckdns.org/repo/backend && php artisan schedule:run >> /dev/null 2>&1
+```
+
+---
+
+## Day-to-day update (like grocery)
+
+```bash
+cd ~/domains/samudura.duckdns.org/repo
+git pull
+cd backend
+composer install --no-dev --optimize-autoloader
+php artisan migrate --force
+php artisan config:cache
+php artisan route:cache
+```
+
+---
+
+## Layout
+
+```text
+~/domains/samudura.duckdns.org/
+  repo/                 # git clone of this monorepo
+    backend/            # Laravel
+    frontend/
+  public_html/          # symlink → repo/backend/public
+```
+
+SSH user: **`samudura`** (`/home/samudura`).
+
+## Credentials
+
+See [staging-credentials.md](./staging-credentials.md).
+
+## Cutover data
+
+Import only when you choose — [cutover-runbook.md](./cutover-runbook.md).

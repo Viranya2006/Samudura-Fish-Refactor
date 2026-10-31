@@ -21,7 +21,9 @@ Move the **live** fish-market POS off paid Supabase (~$25/mo) onto **Provider.lk
 | Vite build → `backend/public` | Done |
 | Import/export artisan tools | Done (supports old `{ tables: {...} }` backup format) |
 | Local MariaDB wired + sample/full import | Done on this machine |
-| DirectAdmin staging live | **Not done** — needs user credentials / second site |
+| Staging domain | **Chosen** — `samudura.duckdns.org` (DuckDNS → `160.30.208.11`) |
+| Deploy style | **Grocery-style** — git clone/pull on server + Fine-grained PAT (Actions SSH deploy unused) |
+| DirectAdmin staging live | **Almost** — clone + migrate OK; next: seed user, SSL, cron, smoke test |
 | Live cutover | **Not done** — shop still on Supabase |
 | Live Supabase mutations | **None** — intentionally untouched |
 
@@ -31,8 +33,9 @@ Move the **live** fish-market POS off paid Supabase (~$25/mo) onto **Provider.lk
 2. Laravel + Sanctum token auth; collapse profiles into `users` (API still returns `user` + `profile`).
 3. Deploy all-in-one on appPro: one domain serves SPA + API from Laravel `public/`.
 4. Print-service remains on counter PC.
-5. Second site on same appPro as grocery.
+5. Second site on same appPro as grocery (`samudura.duckdns.org`).
 6. Import passwords → temp + force reset.
+7. Deploy like grocery: git pull on server (PAT); never auto-import / wipe DB.
 
 ## Local env (this PC)
 
@@ -57,10 +60,10 @@ Password default used: `ChangeMe123!` (then must reset)
 
 ## Next work for a new chat
 
-1. Fill `docs/staging-credentials.md` with DirectAdmin domain/DB when user has them.
-2. Stage deploy per `docs/deploy-directadmin.md`.
-3. Dry-run import on staging MariaDB.
-4. Execute `docs/cutover-runbook.md` only when user schedules day-end freeze.
+1. Finish grocery-style bootstrap: clone → symlink → `.env` → composer → migrate → SSL → cron ([deploy-directadmin.md](./deploy-directadmin.md)).
+2. Fill DB names in [staging-credentials.md](./staging-credentials.md) (no passwords in git).
+3. Dry-run import on staging MariaDB when ready.
+4. Execute [cutover-runbook.md](./cutover-runbook.md) only when user schedules day-end freeze.
 
 ## Artisan cheat sheet
 

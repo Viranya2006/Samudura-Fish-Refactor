@@ -1,19 +1,25 @@
 # Staging credentials checklist (Provider.lk DirectAdmin)
 
-Fill these in before staging deploy. **Do not commit real passwords.**
+**Do not commit real passwords or PATs.**
 
 | Item | Value | Notes |
 |------|--------|------|
-| DirectAdmin URL | _TBD_ | Same appPro as grocery |
-| SSH host / user | _TBD_ | Enable SSH in DirectAdmin |
-| Second domain / subdomain | _TBD_ | Fish POS site (2 websites on appPro) |
-| Document root | `domains/<fish-domain>/public_html` → point to Laravel `public/` | |
-| MariaDB database name | _TBD_ | Create in DirectAdmin MySQL |
-| MariaDB user / password | _TBD_ | Store in `backend/.env` on server only |
-| PHP version | 8.4 | PHP Selector |
-| SSL | AutoSSL | Enable after DNS |
+| DirectAdmin URL | `https://sg-shared01-da.pvtwebs.com:2222` | Same appPro as grocery |
+| SSH / home user | `samudura` | `/home/samudura` |
+| Server IPv4 | `160.30.208.11` | DuckDNS + grocery A record |
+| Grocery domain | `samudura-supermarket.xyz.lk` | Default — leave alone |
+| Fish domain | `samudura.duckdns.org` | Second website |
+| DuckDNS | `samudura` → `160.30.208.11` | Done |
+| Deploy style | Grocery-style git pull | Fine-grained PAT on server git |
+| App path | `/home/samudura/domains/samudura.duckdns.org/repo` | |
+| Document root | `public_html` → `repo/backend/public` | Symlink |
+| MariaDB database | `samudura_samudura_fish` | Server `.env` only |
+| MariaDB user | `samudura_samudura_fish` | Password only in server `.env` |
+| PHP | CLI 8.4.27 available | Web selector: highest 8.x if no 8.4 |
+| SSL | AutoSSL | After DNS |
+| Cron | `schedule:run` on `repo/backend` | Same idea as grocery |
 
-## Local / agent status
+## Notes
 
-- Supabase MCP: authenticated for schema/export during migration tooling.
-- DirectAdmin credentials: **not available in this environment** — deploy steps are documented in `deploy-directadmin.md`; you apply them on the live account when ready.
+- GitHub Actions `DEPLOY_*` SSH deploy is **not** required for grocery style.
+- Live Supabase stays untouched until cutover.

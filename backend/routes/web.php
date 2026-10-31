@@ -1,17 +1,7 @@
 <?php
 
-use Illuminate\Support\Facades\File;
+use App\Http\Controllers\SpaController;
 use Illuminate\Support\Facades\Route;
 
 // SPA fallback: serve Vite build from public/ when present
-Route::get('/{any?}', function () {
-    $index = public_path('index.html');
-    if (File::exists($index)) {
-        return response(File::get($index), 200)->header('Content-Type', 'text/html');
-    }
-
-    return response()->json([
-        'app' => 'Samudura Fish POS API',
-        'docs' => 'See /api/* endpoints. Build frontend into public/ for SPA hosting.',
-    ]);
-})->where('any', '^(?!api).*$');
+Route::get('/{any?}', SpaController::class)->where('any', '^(?!api).*$');

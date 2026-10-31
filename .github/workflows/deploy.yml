@@ -1,0 +1,138 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-samudura-duckdns
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, sqlite, pdo_sqlite
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - run: cp .env.example .env
+      - run: php artisan key:generate
+      - run: touch database/database.sqlite
+      - run: php artisan test
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Upload built public assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-public-spa
+          path: |
+            backend/public/index.html
+            backend/public/assets
+            backend/public/manifest.json
+            backend/public/icons.svg
+            backend/public/_redirects
+          if-no-files-found: error
+
+  deploy:
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require deploy secrets
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          missing=0
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_PATH; do
+            if [ -z "${!name}" ]; then
+              echo "Missing GitHub secret: $name"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Add secrets listed in docs/deploy-directadmin.md, then re-run."
+            exit 1
+          fi
+
+      - name: Resolve SSH port
+        id: ssh_port
+        env:
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: echo "value=${DEPLOY_PORT:-22}" >> "$GITHUB_OUTPUT"
+
+      - name: Clear stale Vite assets from checkout
+        run: rm -rf backend/public/assets backend/public/index.html
+
+      - name: Download SPA build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-public-spa
+          path: backend/public
+
+      - name: Setup SSH key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ steps.ssh_port.outputs.value }}" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Rsync backend to server
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          rsync -avz --delete \
+            --exclude-from=scripts/deploy-rsync-exclude.txt \
+            -e "ssh -i ~/.ssh/deploy_key -p ${{ steps.ssh_port.outputs.value }} -o StrictHostKeyChecking=accept-new" \
+            backend/ \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/"
+
+      - name: Upload remote deploy script
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          scp -i ~/.ssh/deploy_key -P "${{ steps.ssh_port.outputs.value }}" \
+            scripts/deploy-remote.sh \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/deploy-remote.sh"
+
+      - name: Run remote artisan steps
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ steps.ssh_port.outputs.value }}
+          script_stop: true
+          script: |
+            chmod +x "${{ secrets.DEPLOY_PATH }}/deploy-remote.sh"
+            bash "${{ secrets.DEPLOY_PATH }}/deploy-remote.sh" "${{ secrets.DEPLOY_PATH }}"
