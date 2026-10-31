@@ -25,7 +25,8 @@ php artisan pos:import-backup "D:\Projects\Samudura-Fish-Market Refactor\samudur
 | Doc | Purpose |
 |-----|---------|
 | [docs/HANDOFF.md](docs/HANDOFF.md) | Session handoff / status |
-| [docs/deploy-directadmin.md](docs/deploy-directadmin.md) | Provider.lk + DuckDNS auto-deploy |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | Grocery-style pull deploy (primary) |
+| [docs/deploy-directadmin.md](docs/deploy-directadmin.md) | Short pointer to DEPLOY.md |
 | [docs/cutover-runbook.md](docs/cutover-runbook.md) | Live cutover night |
 | [docs/data-migration.md](docs/data-migration.md) | JSON import/export |
 | [docs/staging-credentials.md](docs/staging-credentials.md) | DirectAdmin checklist (fill in) |

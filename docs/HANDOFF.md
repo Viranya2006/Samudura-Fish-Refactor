@@ -22,8 +22,8 @@ Move the **live** fish-market POS off paid Supabase (~$25/mo) onto **Provider.lk
 | Import/export artisan tools | Done (supports old `{ tables: {...} }` backup format) |
 | Local MariaDB wired + sample/full import | Done on this machine |
 | Staging domain | **Chosen** — `samudura.duckdns.org` (DuckDNS → `160.30.208.11`) |
-| Deploy style | **Grocery-style** — git clone/pull on server + Fine-grained PAT (Actions SSH deploy unused) |
-| DirectAdmin staging live | **Live** — `https://samudura.duckdns.org` (Let's Encrypt); PWA desktop install added |
+| Deploy style | **Grocery pull-deploy** on branch `feat/grocery-style-pull-deploy` — signed GitHub Release + cron `pull.sh` (manual Run workflow) |
+| DirectAdmin staging live | **Live** via old `repo/` clone — migrate to `shared/` + `releases/` per [DEPLOY.md](./DEPLOY.md) after merge |
 | PWA (desktop install) | **Done** — vite-plugin-pwa + 192/512 icons + service worker |
 | Live cutover | **Not done** — shop still on Supabase |
 | Live Supabase mutations | **None** — intentionally untouched |
@@ -36,7 +36,7 @@ Move the **live** fish-market POS off paid Supabase (~$25/mo) onto **Provider.lk
 4. Print-service remains on counter PC.
 5. Second site on same appPro as grocery (`samudura.duckdns.org`).
 6. Import passwords → temp + force reset.
-7. Deploy like grocery: git pull on server (PAT); never auto-import / wipe DB.
+7. Deploy like grocery: **pull** signed releases (not inbound SSH); never auto-import / wipe DB; no `db:seed` on each activate.
 
 ## Local env (this PC)
 
@@ -47,24 +47,25 @@ Move the **live** fish-market POS off paid Supabase (~$25/mo) onto **Provider.lk
 - Backup used: `D:\Projects\Samudura-Fish-Market Refactor\samudura-backup-2026-10-30.json`  
   (~114 products, ~29.9k sales, ~43.9k sale_items — verified OK)
 
-### Typical logins after import
+### Typical logins after import / seed
 
 Password default used: `ChangeMe123!` (then must reset)
 
-- Developer email often from profile full_name if it was an email (e.g. gmail)
-- `admin@imported.local`, `cashier@imported.local`, etc.
+- Staging seed: `developer@samudura.local` / `ChangeMe123!`
+- `admin@imported.local`, `cashier@imported.local`, etc. after backup import
 
 ## Related systems
 
 - **Live fish POS**: old folder + Supabase — leave alone until cutover.
-- **Grocery POS**: separate Laravel/Inertia on same Provider.lk appPro — reference for DirectAdmin ops only.
+- **Grocery POS**: separate Laravel/Inertia on same Provider.lk appPro — deploy pattern reference (`D:\Projects\Samufura-Grocery\docs\DEPLOY.md`).
 
 ## Next work for a new chat
 
-1. Finish grocery-style bootstrap: clone → symlink → `.env` → composer → migrate → SSL → cron ([deploy-directadmin.md](./deploy-directadmin.md)).
-2. Fill DB names in [staging-credentials.md](./staging-credentials.md) (no passwords in git).
-3. Dry-run import on staging MariaDB when ready.
-4. Execute [cutover-runbook.md](./cutover-runbook.md) only when user schedules day-end freeze.
+1. Merge `feat/grocery-style-pull-deploy` → `main`.
+2. Add GitHub Environment `production` + secret `RELEASE_SIGNING_KEY` (from local `deploy/release-signing.pem`, gitignored).
+3. One-time server migration + crons per [DEPLOY.md](./DEPLOY.md).
+4. First **Actions → deploy → Run workflow**.
+5. Dry-run import / cutover when scheduled — [cutover-runbook.md](./cutover-runbook.md).
 
 ## Artisan cheat sheet
 
