@@ -16,7 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => EnsureRole::class,
         ]);
-        $middleware->statefulApi();
+        // Token (Bearer) API — do not enable Sanctum statefulApi() (that forces CSRF → 419 on /api/login)
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //
