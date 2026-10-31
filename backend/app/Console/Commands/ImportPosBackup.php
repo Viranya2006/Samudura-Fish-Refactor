@@ -42,21 +42,21 @@ class ImportPosBackup extends Command
             return self::FAILURE;
         }
 
+        $payload = $this->normalizePayload($payload);
+
         if ($this->option('fresh')) {
             $this->warn('Truncating POS tables...');
             $this->truncateAll();
         }
 
-        DB::transaction(function () use ($payload) {
-            $this->importUsers($payload);
-            $this->importRoleDefaults($payload);
-            $this->importShopSettings($payload);
-            $this->importProducts($payload);
-            $this->importSales($payload);
-            $this->importPettyCash($payload);
-            $this->importDayEnd($payload);
-            $this->importStock($payload);
-        });
+        $this->importUsers($payload);
+        $this->importRoleDefaults($payload);
+        $this->importShopSettings($payload);
+        $this->importProducts($payload);
+        $this->importSales($payload);
+        $this->importPettyCash($payload);
+        $this->importDayEnd($payload);
+        $this->importStock($payload);
 
         $this->info('Import complete.');
         $this->table(
@@ -76,6 +76,23 @@ class ImportPosBackup extends Command
         return self::SUCCESS;
     }
 
+    /**
+     * Accept flat dumps or old Samudura backup shape: { formatVersion, tables: { ... } }.
+     */
+    private function normalizePayload(array $payload): array
+    {
+        if (isset($payload['tables']) && is_array($payload['tables'])) {
+            $this->info('Detected Samudura backup format (tables.*)');
+            $payload = array_merge($payload, $payload['tables']);
+        }
+
+        if (! isset($payload['users']) && isset($payload['profiles']) && is_array($payload['profiles'])) {
+            $payload['users'] = $payload['profiles'];
+        }
+
+        return $payload;
+    }
+
     private function truncateAll(): void
     {
         $driver = DB::getDriverName();
@@ -86,12 +103,11 @@ class ImportPosBackup extends Command
         foreach ([
             'sale_items', 'sales', 'stock_adjustments', 'stock_purchases',
             'petty_cash_transactions', 'day_end_records', 'products',
-            'shop_settings', 'role_permission_defaults',
+            'shop_settings', 'role_permission_defaults', 'personal_access_tokens', 'users',
         ] as $table) {
             DB::table($table)->delete();
         }
 
-        // Keep at least one way to log in: wipe users only if JSON includes users
         if ($driver === 'mysql') {
             DB::statement('SET FOREIGN_KEY_CHECKS=1');
         }
@@ -105,14 +121,16 @@ class ImportPosBackup extends Command
 
         foreach ($rows as $row) {
             $id = $row['id'] ?? (string) Str::uuid();
+            $fullName = $row['full_name'] ?? $row['name'] ?? 'User';
             $email = $row['email']
-                ?? $authUsers->get($id)['email']
-                ?? ($row['full_name'] ?? 'user').'@imported.local';
+                ?? ($authUsers->get($id)['email'] ?? null)
+                ?? (filter_var($fullName, FILTER_VALIDATE_EMAIL) ? $fullName : null)
+                ?? (Str::slug($fullName).'@imported.local');
 
             User::query()->updateOrCreate(
                 ['id' => $id],
                 [
-                    'name' => $row['full_name'] ?? $row['name'] ?? 'User',
+                    'name' => $fullName,
                     'email' => $email,
                     'password' => Hash::make($password),
                     'role' => $row['role'] ?? 'cashier',
@@ -196,10 +214,19 @@ class ImportPosBackup extends Command
 
     private function importSales(array $payload): void
     {
-        foreach ($payload['sales'] ?? [] as $row) {
-            Sale::query()->updateOrCreate(
-                ['id' => $row['id']],
-                [
+        $sales = $payload['sales'] ?? [];
+        $items = $payload['sale_items'] ?? [];
+        $this->info('Importing sales ('.count($sales).') and items ('.count($items).')...');
+
+        $saleChunks = array_chunk($sales, 500);
+        $bar = $this->output->createProgressBar(count($saleChunks) + (int) ceil(max(count($items), 1) / 500));
+        $bar->start();
+
+        foreach ($saleChunks as $chunk) {
+            $rows = [];
+            foreach ($chunk as $row) {
+                $rows[] = [
+                    'id' => $row['id'],
                     'receipt_number' => $row['receipt_number'],
                     'cashier_id' => $row['cashier_id'],
                     'sale_type' => $row['sale_type'] ?? 'retail',
@@ -212,32 +239,39 @@ class ImportPosBackup extends Command
                     'change_given' => $row['change_given'] ?? null,
                     'status' => $row['status'] ?? 'completed',
                     'terminal_id' => $row['terminal_id'] ?? null,
-                    'synced' => $row['synced'] ?? true,
-                    'created_at' => $row['created_at'] ?? now(),
-                    'updated_at' => $row['updated_at'] ?? now(),
-                ]
-            );
+                    'synced' => (int) ($row['synced'] ?? true),
+                    'created_at' => isset($row['created_at']) ? date('Y-m-d H:i:s', strtotime($row['created_at'])) : now(),
+                    'updated_at' => isset($row['updated_at']) ? date('Y-m-d H:i:s', strtotime($row['updated_at'])) : now(),
+                ];
+            }
+            DB::table('sales')->upsert($rows, ['id']);
+            $bar->advance();
         }
 
-        foreach ($payload['sale_items'] ?? [] as $row) {
-            SaleItem::query()->updateOrCreate(
-                ['id' => $row['id']],
-                [
+        foreach (array_chunk($items, 500) as $chunk) {
+            $rows = [];
+            foreach ($chunk as $row) {
+                $rows[] = [
+                    'id' => $row['id'],
                     'sale_id' => $row['sale_id'],
                     'product_id' => $row['product_id'],
                     'weight_kg' => $row['weight_kg'],
                     'price_per_kg' => $row['price_per_kg'],
                     'line_total' => $row['line_total'],
                     'line_discount' => $row['line_discount'] ?? 0,
-                    'is_cut' => $row['is_cut'] ?? true,
+                    'is_cut' => (int) ($row['is_cut'] ?? true),
                     'barcode_raw' => $row['barcode_raw'] ?? null,
-                    'is_manual' => $row['is_manual'] ?? false,
-                    'created_at' => $row['created_at'] ?? now(),
-                ]
-            );
+                    'is_manual' => (int) ($row['is_manual'] ?? false),
+                    'created_at' => isset($row['created_at']) ? date('Y-m-d H:i:s', strtotime($row['created_at'])) : now(),
+                ];
+            }
+            DB::table('sale_items')->upsert($rows, ['id']);
+            $bar->advance();
         }
 
-        $this->info('Sales: '.count($payload['sales'] ?? []).', items: '.count($payload['sale_items'] ?? []));
+        $bar->finish();
+        $this->newLine();
+        $this->info('Sales: '.count($sales).', items: '.count($items));
     }
 
     private function importPettyCash(array $payload): void

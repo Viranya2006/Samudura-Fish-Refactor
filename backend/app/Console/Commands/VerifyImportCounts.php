@@ -26,6 +26,10 @@ class VerifyImportCounts extends Command
             return self::FAILURE;
         }
 
+        if (isset($payload['tables']) && is_array($payload['tables'])) {
+            $payload = array_merge($payload, $payload['tables']);
+        }
+
         $checks = [
             'products' => [count($payload['products'] ?? []), Product::query()->count()],
             'sales' => [count($payload['sales'] ?? []), Sale::query()->count()],

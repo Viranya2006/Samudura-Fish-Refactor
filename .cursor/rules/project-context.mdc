@@ -1,0 +1,72 @@
+---
+description: Samudura Fish POS refactor — stack, safety rules, and migration status for every new chat
+alwaysApply: true
+---
+
+# Samudura Fish POS (Refactor) — agent context
+
+## What this repo is
+
+Monorepo replacing the **live** Supabase-hosted fish POS with **Laravel + MariaDB** on Provider.lk appPro, while keeping the **same React/Vite UI** and local **print-service**.
+
+- GitHub: https://github.com/Viranya2006/Samudura-Fish-Refactor
+- Workspace: `D:\Projects\Samudura-Fish-Refactor`
+- Old live codebase (Supabase SPA): `D:\Projects\Samudura-Fish-Market Refactor` — do not treat as deploy target for the new stack
+
+## Hard safety rules
+
+- **Never modify the live Supabase project** (no schema/data/auth/RLS/function changes) unless the user explicitly starts cutover night and asks for a **read-only** export.
+- Live shop still runs on Supabase until cutover. This repo is the migration target.
+- Do not push secrets; `.env` stays local.
+
+## Locked architecture decisions
+
+- Keep React UI pixel/behavior parity (no Inertia rewrite like grocery).
+- Laravel API + Sanctum bearer tokens; roles `developer` | `admin` | `cashier`.
+- Same-origin deploy: Vite builds into `backend/public`; DirectAdmin docroot = Laravel `public/`.
+- Print/scale/VFD/drawer: counter PC only (`print-service/`), not hosted on Provider.lk.
+- Cutover: short downtime after day-end (1–3h), import JSON, flip URL.
+- Passwords: imported users get temp password + `must_reset_password`.
+
+## Layout
+
+| Path | Role |
+|------|------|
+| `frontend/` | React 19 + Vite + Tailwind POS |
+| `backend/` | Laravel 12 API, Sanctum, Fortify provider, MariaDB |
+| `print-service/` | Local Express hardware bridge |
+| `docs/` | Deploy, cutover, data migration, staging checklist |
+
+## Local MariaDB (dev machine)
+
+- MariaDB **11.8 on port 3307** (MySQL 8 may also run on 3306 — use 3307 for this app)
+- DB: `samudura_fish` / user: `samudura` (password in local `backend/.env` only)
+- Seeded/imported data may already be present from `samudura-backup-2026-10-30.json`
+
+```bash
+cd backend && php artisan serve --host=127.0.0.1 --port=8000
+cd frontend && npm run dev -- --host 127.0.0.1 --port 5173
+```
+
+Frontend proxies `/api` → `http://127.0.0.1:8000`.
+
+## Data import
+
+Old app backup shape: `{ formatVersion, tables: { products, sales, ... } }`.
+
+```bash
+php artisan pos:import-backup "path/to/backup.json" --fresh --default-password="..."
+php artisan pos:verify-counts "path/to/backup.json"
+```
+
+Also: `pos:export-local`, `pos:export-supabase` (read-only), `pos:backup-db` (scheduled 02:00).
+
+## Deploy target
+
+Provider.lk **appPro** (DirectAdmin) — second website on same plan as grocery POS. See `docs/deploy-directadmin.md` and `docs/cutover-runbook.md`.
+
+Grocery POS is a separate Laravel/Inertia app; fish stays SPA+API. Both can share one appPro (2 sites).
+
+## When starting a new chat
+
+Read `docs/HANDOFF.md` and `AGENTS.md` first. Prefer changing this refactor repo only; leave live Supabase alone.
