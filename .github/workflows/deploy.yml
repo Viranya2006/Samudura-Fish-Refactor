@@ -1,138 +1,136 @@
-name: Deploy
+name: deploy
+
+# Build the Laravel API + Vite SPA and publish a signed GitHub Release.
+# The server has no inbound SSH, so it fetches the newest release itself
+# (deploy/pull.sh, cron every 5 minutes, with a read-only token) and installs it.
+#
+# Deploys never start on their own: Actions → deploy → Run workflow (branch main).
+# Requires the tests workflow to have passed for that commit.
+# GitHub Environment "production" should allow only main.
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
-  group: deploy-samudura-duckdns
-  cancel-in-progress: true
+  group: deploy-production-fish
+  cancel-in-progress: false
 
 jobs:
-  backend:
+  deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
+    environment: production
+    permissions:
+      contents: write
+      actions: read
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: shivammathur/setup-php@v2
+      - name: Check the tests passed for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          result="$(gh run list --workflow tests --branch main --event push --commit "$SHA" --json conclusion -q '.[0].conclusion')"
+          if [ "$result" != "success" ]; then
+            echo "The tests have not passed for $SHA (result: ${result:-not run yet}). Wait for them, then run this again." >&2
+            exit 1
+          fi
+
+      - name: Checkout the tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: mbstring, sqlite, pdo_sqlite
+          extensions: pdo_mysql, intl, gd, zip, bcmath, mbstring
+          tools: composer:v2
           coverage: none
-      - run: composer install --no-interaction --prefer-dist
-      - run: cp .env.example .env
-      - run: php artisan key:generate
-      - run: touch database/database.sqlite
-      - run: php artisan test
 
-  frontend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-      - run: npm run build
-      - name: Upload built public assets
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-public-spa
-          path: |
-            backend/public/index.html
-            backend/public/assets
-            backend/public/manifest.json
-            backend/public/icons.svg
-            backend/public/_redirects
-          if-no-files-found: error
 
-  deploy:
-    needs: [backend, frontend]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Install production PHP packages
+        working-directory: backend
+        run: composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
 
-      - name: Require deploy secrets
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      - name: Build the SPA into backend/public
         run: |
-          missing=0
-          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_PATH; do
-            if [ -z "${!name}" ]; then
-              echo "Missing GitHub secret: $name"
-              missing=1
+          cp backend/.env.example backend/.env
+          cd backend && php artisan key:generate --no-interaction && cd ..
+          cd frontend && npm ci && npm run build && cd ..
+          rm -f backend/.env
+
+      - name: Package the release
+        id: package
+        run: |
+          name="$(date -u +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)"
+          echo "$name" > backend/public/version.txt
+          stage="$(mktemp -d)"
+          # Release root = Laravel backend (+ deploy scripts for pull/activate).
+          rsync -a \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            --exclude='storage' \
+            --exclude='tests' \
+            --exclude='node_modules' \
+            --exclude='.phpunit.result.cache' \
+            --exclude='bootstrap/cache/*.php' \
+            backend/ "$stage/"
+          mkdir -p "$stage/storage/app" "$stage/storage/framework" "$stage/storage/logs"
+          cp -a deploy "$stage/deploy"
+          tar -czf "/tmp/$name.tar.gz" -C "$stage" .
+          (cd /tmp && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          ls -lh "/tmp/$name.tar.gz"
+          rm -rf "$stage"
+
+      - name: Sign the release
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          NAME: ${{ steps.package.outputs.name }}
+        run: |
+          [ -n "$RELEASE_SIGNING_KEY" ] || { echo "RELEASE_SIGNING_KEY is not set on the production environment" >&2; exit 1; }
+          umask 077
+          printf '%s\n' "$RELEASE_SIGNING_KEY" > /tmp/signing.pem
+          openssl dgst -sha256 -sign /tmp/signing.pem -out "/tmp/$NAME.tar.gz.sig" "/tmp/$NAME.tar.gz"
+          rm -f /tmp/signing.pem
+
+      - name: Publish the release for the server
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NAME: ${{ steps.package.outputs.name }}
+        run: |
+          gh release create "release-$NAME" "/tmp/$NAME.tar.gz" "/tmp/$NAME.tar.gz.sha256" "/tmp/$NAME.tar.gz.sig" \
+            --target "$(git rev-parse HEAD)" --title "Release $NAME" --latest \
+            --notes "Built from $(git rev-parse --short HEAD). The server installs it within 5 minutes."
+          gh release list --limit 100 --json tagName -q '.[].tagName' | grep '^release-' | sort -r | tail -n +11 \
+            | xargs -r -I{} gh release delete {} --yes --cleanup-tag
+
+      - name: Wait for the server to install it
+        env:
+          NAME: ${{ steps.package.outputs.name }}
+        run: |
+          for i in $(seq 1 40); do
+            live="$(curl -fsS --max-time 15 https://samudura.duckdns.org/version.txt 2>/dev/null || true)"
+            if [ "$live" = "$NAME" ]; then
+              curl --fail --silent --show-error --max-time 20 https://samudura.duckdns.org/up >/dev/null
+              echo "Live: $NAME"
+              exit 0
             fi
+            sleep 15
           done
-          if [ "$missing" -ne 0 ]; then
-            echo "Add secrets listed in docs/deploy-directadmin.md, then re-run."
-            exit 1
-          fi
-
-      - name: Resolve SSH port
-        id: ssh_port
-        env:
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
-        run: echo "value=${DEPLOY_PORT:-22}" >> "$GITHUB_OUTPUT"
-
-      - name: Clear stale Vite assets from checkout
-        run: rm -rf backend/public/assets backend/public/index.html
-
-      - name: Download SPA build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: backend-public-spa
-          path: backend/public
-
-      - name: Setup SSH key
-        env:
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-        run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "${{ steps.ssh_port.outputs.value }}" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-
-      - name: Rsync backend to server
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-        run: |
-          rsync -avz --delete \
-            --exclude-from=scripts/deploy-rsync-exclude.txt \
-            -e "ssh -i ~/.ssh/deploy_key -p ${{ steps.ssh_port.outputs.value }} -o StrictHostKeyChecking=accept-new" \
-            backend/ \
-            "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/"
-
-      - name: Upload remote deploy script
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-        run: |
-          scp -i ~/.ssh/deploy_key -P "${{ steps.ssh_port.outputs.value }}" \
-            scripts/deploy-remote.sh \
-            "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/deploy-remote.sh"
-
-      - name: Run remote artisan steps
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          port: ${{ steps.ssh_port.outputs.value }}
-          script_stop: true
-          script: |
-            chmod +x "${{ secrets.DEPLOY_PATH }}/deploy-remote.sh"
-            bash "${{ secrets.DEPLOY_PATH }}/deploy-remote.sh" "${{ secrets.DEPLOY_PATH }}"
+          echo "The server has not installed $NAME after 10 minutes. Look at shared/deploy.log on the server." >&2
+          exit 1
