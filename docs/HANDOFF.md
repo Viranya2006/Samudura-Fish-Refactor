@@ -23,7 +23,7 @@ Move the **live** fish-market POS off paid Supabase (~$25/mo) onto **Provider.lk
 | Local MariaDB wired + sample/full import | Done on this machine |
 | Staging / production domain | **`samudura-fishmarket.xyz.lk`** (replacing DuckDNS; A → `160.30.208.11`) |
 | Deploy style | **Grocery pull-deploy** — signed GitHub Release + cron `pull.sh` (manual Run workflow) |
-| DirectAdmin staging live | **Live** on pull-deploy; rename DA domain + `APP_URL`/crons/SSL when cutting to `.xyz.lk` — [DEPLOY.md](./DEPLOY.md) |
+| DirectAdmin staging live | **Live** at https://samudura-fishmarket.xyz.lk (pull-deploy; release `20261101-111031-2d082ae`+) — [DEPLOY.md](./DEPLOY.md) |
 | PWA (desktop install) | **Done** — vite-plugin-pwa + 192/512 icons + service worker |
 | Live cutover | **Not done** — shop still on Supabase |
 | Live Supabase mutations | **None** — intentionally untouched |
@@ -61,9 +61,9 @@ Password default used: `ChangeMe123!` (then must reset)
 
 ## Next work for a new chat
 
-1. Finish DA domain rename to `samudura-fishmarket.xyz.lk` + SSL + crons ([DEPLOY.md](./DEPLOY.md) “Switching from DuckDNS”).
-2. Merge `feat/domain-samudura-fishmarket` → `main` and **Run deploy**.
-3. Dry-run import / cutover when scheduled — [cutover-runbook.md](./cutover-runbook.md).
+1. Confirm DA cron uses `samudura-fishmarket.xyz.lk` paths (not duckdns) so auto-pull works.
+2. Dry-run import / cutover when scheduled — [cutover-runbook.md](./cutover-runbook.md).
+3. Optional: remove DuckDNS / old domain leftovers on Provider.lk.
 
 ## Artisan cheat sheet
 
