@@ -124,9 +124,9 @@ jobs:
           NAME: ${{ steps.package.outputs.name }}
         run: |
           for i in $(seq 1 40); do
-            live="$(curl -fsS --max-time 15 https://samudura.duckdns.org/version.txt 2>/dev/null || true)"
+            live="$(curl -fsS --max-time 15 https://samudura-fishmarket.xyz.lk/version.txt 2>/dev/null || true)"
             if [ "$live" = "$NAME" ]; then
-              curl --fail --silent --show-error --max-time 20 https://samudura.duckdns.org/up >/dev/null
+              curl --fail --silent --show-error --max-time 20 https://samudura-fishmarket.xyz.lk/up >/dev/null
               echo "Live: $NAME"
               exit 0
             fi

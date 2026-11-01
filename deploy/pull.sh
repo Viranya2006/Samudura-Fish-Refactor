@@ -3,16 +3,16 @@
 # instead of GitHub pushing releases in, the server fetches the newest GitHub Release of
 # this repository, checks its signature and checksum and installs it with activate.sh.
 #
-# Needs, in ~/domains/samudura.duckdns.org/shared/ (docs/DEPLOY.md):
+# Needs, in ~/domains/samudura-fishmarket.xyz.lk/shared/ (docs/DEPLOY.md):
 #   github-token            a fine-grained token that can only READ this repository
 #   release-signing.pub     the public key releases are signed with. Only the approved deploy
 #                           job holds the private key, so a release published any other way
 #                           is refused. Releases never change this file.
 #
-# Usage (cron): bash ~/domains/samudura.duckdns.org/shared/pull.sh
+# Usage (cron): bash ~/domains/samudura-fishmarket.xyz.lk/shared/pull.sh
 set -euo pipefail
 
-APP="${APP_DIR:-$HOME/domains/samudura.duckdns.org}"
+APP="${APP_DIR:-$HOME/domains/samudura-fishmarket.xyz.lk}"
 PHP="${PHP_BIN:-/usr/local/bin/php}"
 REPO="${DEPLOY_REPO:-Viranya2006/Samudura-Fish-Refactor}"
 API="${GITHUB_API:-https://api.github.com}"

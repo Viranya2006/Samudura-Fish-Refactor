@@ -8,7 +8,7 @@ Summary:
 2. Actions → **deploy** → Run workflow  
 3. Server cron (`shared/pull.sh` every 5 min) installs the signed release  
 
-Domain: **`samudura.duckdns.org`**. Same appPro account as grocery.
+Domain: **`samudura-fishmarket.xyz.lk`**. Same appPro account as grocery.
 
 Do **not** use Softaculous Laravel. Do **not** rely on inbound SSH from GitHub.
 

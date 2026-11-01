@@ -1,6 +1,6 @@
 # Handoff — Samudura Fish POS → Provider.lk
 
-Last updated: 2026-10-31
+Last updated: 2026-11-01
 
 ## Goal
 
@@ -21,9 +21,9 @@ Move the **live** fish-market POS off paid Supabase (~$25/mo) onto **Provider.lk
 | Vite build → `backend/public` | Done |
 | Import/export artisan tools | Done (supports old `{ tables: {...} }` backup format) |
 | Local MariaDB wired + sample/full import | Done on this machine |
-| Staging domain | **Chosen** — `samudura.duckdns.org` (DuckDNS → `160.30.208.11`) |
-| Deploy style | **Grocery pull-deploy** on branch `feat/grocery-style-pull-deploy` — signed GitHub Release + cron `pull.sh` (manual Run workflow) |
-| DirectAdmin staging live | **Live** via old `repo/` clone — migrate to `shared/` + `releases/` per [DEPLOY.md](./DEPLOY.md) after merge |
+| Staging / production domain | **`samudura-fishmarket.xyz.lk`** (replacing DuckDNS; A → `160.30.208.11`) |
+| Deploy style | **Grocery pull-deploy** — signed GitHub Release + cron `pull.sh` (manual Run workflow) |
+| DirectAdmin staging live | **Live** on pull-deploy; rename DA domain + `APP_URL`/crons/SSL when cutting to `.xyz.lk` — [DEPLOY.md](./DEPLOY.md) |
 | PWA (desktop install) | **Done** — vite-plugin-pwa + 192/512 icons + service worker |
 | Live cutover | **Not done** — shop still on Supabase |
 | Live Supabase mutations | **None** — intentionally untouched |
@@ -34,7 +34,7 @@ Move the **live** fish-market POS off paid Supabase (~$25/mo) onto **Provider.lk
 2. Laravel + Sanctum token auth; collapse profiles into `users` (API still returns `user` + `profile`).
 3. Deploy all-in-one on appPro: one domain serves SPA + API from Laravel `public/`.
 4. Print-service remains on counter PC.
-5. Second site on same appPro as grocery (`samudura.duckdns.org`).
+5. Second site on same appPro as grocery (`samudura-fishmarket.xyz.lk`).
 6. Import passwords → temp + force reset.
 7. Deploy like grocery: **pull** signed releases (not inbound SSH); never auto-import / wipe DB; no `db:seed` on each activate.
 
@@ -61,11 +61,9 @@ Password default used: `ChangeMe123!` (then must reset)
 
 ## Next work for a new chat
 
-1. Merge `feat/grocery-style-pull-deploy` → `main`.
-2. Add GitHub Environment `production` + secret `RELEASE_SIGNING_KEY` (from local `deploy/release-signing.pem`, gitignored).
-3. One-time server migration + crons per [DEPLOY.md](./DEPLOY.md).
-4. First **Actions → deploy → Run workflow**.
-5. Dry-run import / cutover when scheduled — [cutover-runbook.md](./cutover-runbook.md).
+1. Finish DA domain rename to `samudura-fishmarket.xyz.lk` + SSL + crons ([DEPLOY.md](./DEPLOY.md) “Switching from DuckDNS”).
+2. Merge `feat/domain-samudura-fishmarket` → `main` and **Run deploy**.
+3. Dry-run import / cutover when scheduled — [cutover-runbook.md](./cutover-runbook.md).
 
 ## Artisan cheat sheet
 

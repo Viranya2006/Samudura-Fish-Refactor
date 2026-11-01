@@ -63,7 +63,7 @@ Also: `pos:export-local`, `pos:export-supabase` (read-only), `pos:backup-db` (sc
 
 ## Deploy target
 
-Provider.lk **appPro** (DirectAdmin) — second website: `samudura.duckdns.org`.  
+Provider.lk **appPro** (DirectAdmin) — second website: `samudura-fishmarket.xyz.lk`.  
 **Deploy = grocery-style pull:** signed GitHub Release + server cron `shared/pull.sh` (see `docs/DEPLOY.md`). No inbound SSH from GitHub.
 
 Grocery POS is a separate Laravel/Inertia app; fish stays SPA+API. Both share one appPro (2 sites).
