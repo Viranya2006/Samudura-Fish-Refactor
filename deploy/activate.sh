@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs ON THE SERVER after pull.sh downloads a signed release archive.
 #
-#   ~/domains/samudura.duckdns.org/
+#   ~/domains/samudura-fishmarket.xyz.lk/
 #     releases/<name>/     one folder per deploy (the last 5 are kept)
 #     shared/.env          production settings (made once by hand, see docs/DEPLOY.md)
 #     shared/storage/      uploads, logs, sessions cache — kept across deploys
@@ -12,7 +12,7 @@
 # Release root is the Laravel backend/ (artisan at top level) plus deploy/.
 set -euo pipefail
 
-APP="${APP_DIR:-$HOME/domains/samudura.duckdns.org}"
+APP="${APP_DIR:-$HOME/domains/samudura-fishmarket.xyz.lk}"
 PHP="${PHP_BIN:-/usr/local/bin/php}"
 NAME="${1:?release name}"
 REL="$APP/releases/$NAME"

@@ -2,10 +2,10 @@
 # Runs ON THE SERVER: go back to the release before the current one.
 # Database changes are NOT undone (migrations only add); see docs/DEPLOY.md.
 #
-# Usage: bash ~/domains/samudura.duckdns.org/current/deploy/rollback.sh
+# Usage: bash ~/domains/samudura-fishmarket.xyz.lk/current/deploy/rollback.sh
 set -euo pipefail
 
-APP="${APP_DIR:-$HOME/domains/samudura.duckdns.org}"
+APP="${APP_DIR:-$HOME/domains/samudura-fishmarket.xyz.lk}"
 PHP="${PHP_BIN:-/usr/local/bin/php}"
 CURRENT="$(basename "$(readlink -f "$APP/current")")"
 PREVIOUS="$(cd "$APP/releases" && ls -1dt -- */ | sed 's#/$##' | grep -vx "$CURRENT" | head -n 1)"

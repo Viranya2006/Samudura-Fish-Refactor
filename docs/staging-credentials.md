@@ -6,10 +6,9 @@
 |------|--------|------|
 | DirectAdmin URL | `https://sg-shared01-da.pvtwebs.com:2222` | Same appPro as grocery |
 | SSH / home user | `samudura` | `/home/samudura` |
-| Server IPv4 | `160.30.208.11` | DuckDNS + grocery A record |
+| Server IPv4 | `160.30.208.11` | Grocery + fish A record |
 | Grocery domain | `samudura-supermarket.xyz.lk` | Default — leave alone |
-| Fish domain | `samudura.duckdns.org` | Second website |
-| DuckDNS | `samudura` → `160.30.208.11` | Done |
+| Fish domain | `samudura-fishmarket.xyz.lk` | Second website (was DuckDNS) |
 | Deploy style | Grocery pull-deploy | Signed releases + `shared/pull.sh` cron |
 | App layout | `shared/` + `releases/` + `current` | See [DEPLOY.md](./DEPLOY.md) |
 | Document root | `public_html` → `current/public` | After first activate |

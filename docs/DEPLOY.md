@@ -1,4 +1,4 @@
-# Going live and updating — samudura.duckdns.org
+# Going live and updating — samudura-fishmarket.xyz.lk
 
 Hosting: Provider.lk **appPro** (DirectAdmin), server `sg-shared01`, user `samudura`.  
 Same **pull, not push** design as grocery (`Samufura-Grocery/docs/DEPLOY.md`).
@@ -9,10 +9,10 @@ Same **pull, not push** design as grocery (`Samufura-Grocery/docs/DEPLOY.md`).
 2. When tests pass, start deploy: GitHub → **Actions → deploy → Run workflow** (branch `main`).
 3. Deploy builds Laravel + Vite SPA, **signs** the package, publishes a GitHub Release.
 4. Every 5 minutes cron runs `shared/pull.sh`: download → verify signature + checksum → `activate.sh`.
-5. The workflow waits until `https://samudura.duckdns.org/version.txt` matches the new release.
+5. The workflow waits until `https://samudura-fishmarket.xyz.lk/version.txt` matches the new release.
 
 ```
-~/domains/samudura.duckdns.org/
+~/domains/samudura-fishmarket.xyz.lk/
   releases/<name>/        last 5 releases (Laravel backend + deploy/)
   shared/.env             production settings (secret)
   shared/github-token     read-only GitHub token (secret)
@@ -25,6 +25,21 @@ Same **pull, not push** design as grocery (`Samufura-Grocery/docs/DEPLOY.md`).
 ```
 
 Release tarball root = this repo’s **`backend/`** (with `vendor/` + built `public/`) plus **`deploy/`**.
+
+## Switching from DuckDNS (`samudura.duckdns.org`)
+
+You do **not** recreate DB, PAT, or signing keys.
+
+1. Point DNS A record for **`samudura-fishmarket.xyz.lk`** → **`160.30.208.11`**.
+2. DirectAdmin → Domains → select `samudura.duckdns.org` → **Rename Domain** → `samudura-fishmarket.xyz.lk`  
+   (keeps `shared/`, `releases/`, `current`). Do not set as default.
+3. Edit `shared/.env`: `APP_URL=https://samudura-fishmarket.xyz.lk`
+4. Update both cron command paths to `/home/samudura/domains/samudura-fishmarket.xyz.lk/...`
+5. SSL → AutoSSL / Let’s Encrypt for the new domain.
+6. After this repo’s domain update is on `main`, run **Actions → deploy** once so `shared/pull.sh` refreshes.
+7. Optional: delete DuckDNS `samudura` entry when the new URL works.
+
+If Rename fails: delete DuckDNS domain in DA, add the `.xyz.lk` domain, then move the old folder contents into the new domain directory.
 
 ---
 
@@ -57,10 +72,10 @@ Fine-grained PAT:
 
 ### 3. Migrate from the old `repo/` git clone
 
-If you already deployed with `git clone` under `domains/samudura.duckdns.org/repo`:
+If you already deployed with `git clone` under `domains/samudura-fishmarket.xyz.lk/repo`:
 
 ```bash
-APP=~/domains/samudura.duckdns.org
+APP=~/domains/samudura-fishmarket.xyz.lk
 mkdir -p "$APP/shared" "$APP/releases" "$APP/shared/storage/framework"/{cache/data,sessions,views} \
   "$APP/shared/storage/app"/{public,private} "$APP/shared/storage/logs"
 
@@ -81,7 +96,7 @@ Ensure `shared/.env` has at least:
 ```env
 APP_ENV=production
 APP_DEBUG=false
-APP_URL=https://samudura.duckdns.org
+APP_URL=https://samudura-fishmarket.xyz.lk
 APP_KEY=base64:...
 DB_CONNECTION=mysql
 DB_HOST=127.0.0.1
@@ -98,7 +113,7 @@ QUEUE_CONNECTION=sync
 ### 4. Token + public key + pull.sh on the server
 
 ```bash
-cd ~/domains/samudura.duckdns.org/shared
+cd ~/domains/samudura-fishmarket.xyz.lk/shared
 read -rs -p "Paste the GitHub token, then Enter: " T && printf '%s' "$T" > github-token && chmod 600 github-token && unset T && echo " saved"
 
 # Fetch public key + pull.sh from main (after this branch is merged)
@@ -115,8 +130,8 @@ ls -l
 
 | When | Command |
 |------|---------|
-| `*/5 * * * *` | `bash /home/samudura/domains/samudura.duckdns.org/shared/pull.sh >> /home/samudura/domains/samudura.duckdns.org/shared/deploy.log 2>&1` |
-| `* * * * *` | `/usr/local/bin/php /home/samudura/domains/samudura.duckdns.org/current/artisan schedule:run >> /dev/null 2>&1` |
+| `*/5 * * * *` | `bash /home/samudura/domains/samudura-fishmarket.xyz.lk/shared/pull.sh >> /home/samudura/domains/samudura-fishmarket.xyz.lk/shared/deploy.log 2>&1` |
+| `* * * * *` | `/usr/local/bin/php /home/samudura/domains/samudura-fishmarket.xyz.lk/current/artisan schedule:run >> /dev/null 2>&1` |
 
 Until the first release creates `current`, the schedule cron may no-op; that is fine. Keep any temporary old `repo/backend` schedule cron until first successful activate, then remove the old one.
 
@@ -124,8 +139,8 @@ Until the first release creates `current`, the schedule cron may no-op; that is 
 
 1. Merge `feat/grocery-style-pull-deploy` (or later work) to `main`; wait for **tests**.
 2. Actions → **deploy** → **Run workflow** (`main`).
-3. Within ~5 minutes: `tail -n 40 ~/domains/samudura.duckdns.org/shared/deploy.log`
-4. Check `https://samudura.duckdns.org/version.txt` and `/login`.
+3. Within ~5 minutes: `tail -n 40 ~/domains/samudura-fishmarket.xyz.lk/shared/deploy.log`
+4. Check `https://samudura-fishmarket.xyz.lk/version.txt` and `/login`.
 
 First activate replaces `public_html` with a symlink to `current/public` (old symlink to `repo/backend/public` is overwritten).
 
@@ -135,7 +150,7 @@ Optional cleanup:
 
 ```bash
 # Only after the new site works
-# mv ~/domains/samudura.duckdns.org/repo ~/domains/samudura.duckdns.org/repo.before-pull-deploy
+# mv ~/domains/samudura-fishmarket.xyz.lk/repo ~/domains/samudura-fishmarket.xyz.lk/repo.before-pull-deploy
 ```
 
 ---
@@ -144,7 +159,7 @@ Optional cleanup:
 
 - **Update:** merge to `main` → wait for **tests** → **Actions → deploy → Run workflow** → live within 5 minutes.
 - **Rollback code:**  
-  `bash ~/domains/samudura.duckdns.org/current/deploy/rollback.sh`  
+  `bash ~/domains/samudura-fishmarket.xyz.lk/current/deploy/rollback.sh`  
   (DB migrations are not undone.)
 - **Logs:** `shared/deploy.log`, `shared/storage/logs/laravel-*.log`
 - **Token expired** (401 in deploy.log): new fine-grained PAT → replace `shared/github-token`.
