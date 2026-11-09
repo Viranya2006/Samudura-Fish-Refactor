@@ -70,11 +70,15 @@ export function PaymentModal({ open, onClose, onSuccess }: PaymentModalProps) {
   }, [open, total, paymentMethod, cashNum, change]);
 
   const handleComplete = async () => {
-    if (!canComplete || !profile) return;
+    if (!canComplete || !profile) {
+      if (!profile) setError("Not signed in — refresh and log in again.");
+      return;
+    }
     setIsProcessing(true);
     setError(null);
     try {
-      const receiptNumber = `R${Date.now().toString().slice(-8)}`;
+      // Full timestamp avoids collisions with imported R######## receipts
+      const receiptNumber = `R${Date.now()}`;
       await posApi.sales.create({
         receipt_number: receiptNumber,
         sale_type: saleType,
@@ -124,7 +128,12 @@ export function PaymentModal({ open, onClose, onSuccess }: PaymentModalProps) {
         date: formatReceiptDate(new Date()),
       };
       clearCart();
-      printReceipt(receiptData);
+      // Print/VFD must never fail the sale — print-service may be offline
+      try {
+        await printReceipt(receiptData);
+      } catch {
+        /* offline print-service / mixed content — sale already saved */
+      }
       onSuccess();
       onClose();
       setCashReceived("");

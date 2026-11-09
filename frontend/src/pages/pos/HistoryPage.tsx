@@ -24,7 +24,7 @@ export function HistoryPage() {
     async function load() {
       try {
         const [{ data: salesData }, { data: productList }] = await Promise.all([
-          posApi.sales.list({ status: "completed", limit: 100 }),
+          posApi.sales.list({ status: "completed", limit: 500 }),
           posApi.products.list(true),
         ]);
         const productMap = buildProductMap(productList ?? []);
