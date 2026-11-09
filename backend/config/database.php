@@ -57,8 +57,12 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
+            // Force UTC so TIMESTAMP matches APP_TIMEZONE=UTC and imported dump times.
+            // Without this, Asia/Colombo system TZ shifts new sales -5h30 and they vanish
+            // from History (latest-N by created_at) under the imported rows.
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+                PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci, time_zone = '+00:00'",
             ]) : [],
         ],
 
@@ -79,6 +83,7 @@ return [
             'engine' => null,
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+                PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci, time_zone = '+00:00'",
             ]) : [],
         ],
 

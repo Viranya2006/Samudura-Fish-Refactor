@@ -44,6 +44,16 @@ class ImportPosBackup extends Command
 
         $payload = $this->normalizePayload($payload);
 
+        $driver = DB::getDriverName();
+        if ($driver === 'mysql') {
+            // Keep FK off for the whole import so orphaned sale_items / missing
+            // cashiers in old backups do not abort mid-load.
+            DB::statement('SET FOREIGN_KEY_CHECKS=0');
+            // Prevent TIMESTAMP shifting through Asia/Colombo system TZ.
+            // Backup instants are UTC; store them as UTC wall-clock values.
+            DB::statement("SET time_zone = '+00:00'");
+        }
+
         if ($this->option('fresh')) {
             $this->warn('Truncating POS tables...');
             $this->truncateAll();
@@ -57,6 +67,19 @@ class ImportPosBackup extends Command
         $this->importPettyCash($payload);
         $this->importDayEnd($payload);
         $this->importStock($payload);
+
+        if ($driver === 'mysql') {
+            // Drop sale_items whose sale_id is missing after load
+            $orphans = DB::affectingStatement('
+                DELETE si FROM sale_items si
+                LEFT JOIN sales s ON s.id = si.sale_id
+                WHERE s.id IS NULL
+            ');
+            if ($orphans > 0) {
+                $this->warn("Removed {$orphans} orphan sale_items (sale_id missing)");
+            }
+            DB::statement('SET FOREIGN_KEY_CHECKS=1');
+        }
 
         $this->info('Import complete.');
         $this->table(
@@ -95,21 +118,13 @@ class ImportPosBackup extends Command
 
     private function truncateAll(): void
     {
-        $driver = DB::getDriverName();
-        if ($driver === 'mysql') {
-            DB::statement('SET FOREIGN_KEY_CHECKS=0');
-        }
-
+        // FOREIGN_KEY_CHECKS handled by handle() for the whole import.
         foreach ([
             'sale_items', 'sales', 'stock_adjustments', 'stock_purchases',
             'petty_cash_transactions', 'day_end_records', 'products',
             'shop_settings', 'role_permission_defaults', 'personal_access_tokens', 'users',
         ] as $table) {
             DB::table($table)->delete();
-        }
-
-        if ($driver === 'mysql') {
-            DB::statement('SET FOREIGN_KEY_CHECKS=1');
         }
     }
 

@@ -72,14 +72,19 @@ export async function renderHtmlToImage(
 }
 
 export async function sendImageToPrinter(imageDataUrl: string): Promise<boolean> {
-  const res = await fetch(PRINT_SERVICE_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image: imageDataUrl }),
-  });
-  if (!res.ok) return false;
-  const body = (await res.json().catch(() => ({}))) as { destination?: string };
-  return body.destination !== "stdout";
+  try {
+    const res = await fetch(PRINT_SERVICE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: imageDataUrl }),
+    });
+    if (!res.ok) return false;
+    const body = (await res.json().catch(() => ({}))) as { destination?: string };
+    return body.destination !== "stdout";
+  } catch {
+    // print-service offline (ERR_CONNECTION_REFUSED) — caller falls back
+    return false;
+  }
 }
 
 export function fallbackWindowPrintHtml(html: string): void {
